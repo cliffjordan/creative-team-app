@@ -1,0 +1,32 @@
+name: Supabase Keep-Alive Heartbeat
+
+on:
+  schedule:
+    # Run every 3 days at 02:00 UTC (09:00 WIB) to prevent Supabase 7-day auto-pause
+    - cron: "0 2 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call keep-alive endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          TARGET_URL="${APP_URL:-https://creative-team-app.vercel.app}"
+          ENDPOINT="${TARGET_URL%/}/api/health/keep-alive"
+          echo "Pinging ${ENDPOINT}..."
+
+          if [ -n "${CRON_SECRET}" ]; then
+            RESPONSE=$(curl --fail --silent --show-error --retry 3 --max-time 30 \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${ENDPOINT}")
+          else
+            RESPONSE=$(curl --fail --silent --show-error --retry 3 --max-time 30 \
+              "${ENDPOINT}")
+          fi
+
+          echo "Response: ${RESPONSE}"
+          echo "${RESPONSE}" | grep -q '"ok":true'
