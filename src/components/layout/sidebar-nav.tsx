@@ -14,13 +14,21 @@ import {
   Wallet,
   FileText,
   BookOpen,
+  Users,
+  User as UserIcon,
   LogOut,
   LogIn,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { User, Event } from "@/types/domain";
-import { isCreativeLeader, getFinanceAccessMode, getNotesAccessMode } from "@/lib/mock-db";
+import {
+  isCreativeLeader,
+  isUnassignedMember,
+  getFinanceAccessMode,
+  getNotesAccessMode,
+  getProposalAccessMode,
+} from "@/lib/mock-db";
 import { TabType } from "@/components/layout/bottom-nav";
 
 interface SidebarNavProps {
@@ -43,6 +51,7 @@ export function SidebarNav({
   onLogout,
 }: SidebarNavProps) {
   const isLive = activeEvent?.status === "EVENT_DAY" && !!activeEvent?.live_started_at && !activeEvent?.live_ended_at;
+  const unassigned = isUnassignedMember(currentUser ?? null);
 
   const navItems: Array<{
     id: TabType;
@@ -52,18 +61,32 @@ export function SidebarNav({
     liveDot?: boolean;
   }> = [
     { id: "home", label: "Home Dashboard", icon: Home },
-    { id: "live", label: "Live Rundowns", icon: Radio, liveDot: isLive },
-    { id: "evaluation", label: "Event Evaluations", icon: ClipboardCheck, badge: openIncidentsCount },
+    ...(!unassigned
+      ? [
+          { id: "live" as TabType, label: "Live Rundowns", icon: Radio, liveDot: isLive },
+          {
+            id: "evaluation" as TabType,
+            label: "Event Evaluations",
+            icon: ClipboardCheck,
+            badge: openIncidentsCount,
+          },
+        ]
+      : []),
     { id: "timeline", label: "Tasks & Timeline", icon: CheckSquare },
     { id: "calendar", label: "Calendar & Schedule", icon: Calendar },
-    { id: "sections", label: "Sections & Tools", icon: Layers },
+    ...(!unassigned ? [{ id: "sections" as TabType, label: "Sections & Tools", icon: Layers }] : []),
     ...(getFinanceAccessMode(currentUser ?? null) !== "LOCKED"
       ? [{ id: "finance" as TabType, label: "Pembiayaan", icon: Wallet }]
       : []),
     ...(getNotesAccessMode(currentUser ?? null) !== "LOCKED"
-      ? [{ id: "notes" as TabType, label: "Notulensi Rapat", icon: FileText }]
+      ? [{ id: "notes" as TabType, label: "Sekretariat", icon: FileText }]
       : []),
-    { id: "proposal", label: "Template Proposal", icon: BookOpen },
+    ...(getProposalAccessMode(currentUser ?? null) !== "LOCKED"
+      ? [{ id: "proposal" as TabType, label: "Dokumen Event Brief", icon: BookOpen }]
+      : []),
+    ...(isCreativeLeader(currentUser ?? null)
+      ? [{ id: "members" as TabType, label: "Manajemen Member", icon: Users }]
+      : []),
   ];
 
   const initials = currentUser?.full_name
@@ -166,19 +189,25 @@ export function SidebarNav({
       <div className="p-3 border-t border-slate-100 bg-slate-50/70">
         {currentUser ? (
           <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-slate-200/80 shadow-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => onChangeTab("profile")}
+              title="Edit Profil Akun"
+              className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-slate-50 p-0.5 transition"
+            >
               <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0">
                 {initials}
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-900 truncate">
-                  {currentUser.full_name}
+                <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1">
+                  <span className="truncate">{currentUser.full_name}</span>
+                  <UserIcon className="w-3 h-3 text-slate-400 shrink-0" />
                 </div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 truncate">
-                  {currentUser.base_role.replace("_", " ")}
+                  {currentUser.base_role.replace("_", " ")} • Profil
                 </div>
               </div>
-            </div>
+            </button>
             <button
               type="button"
               onClick={onLogout}

@@ -58,6 +58,8 @@ export interface User {
   phone?: string;
   is_superadmin: boolean;
   base_role: UserBaseRole;
+  default_section?: SectionType | null;
+  is_role_assigned?: boolean;
   avatar_url?: string;
   failed_pin_attempts: number;
   locked_until?: string | null;
@@ -179,12 +181,53 @@ export interface EventBudgetLedgerItem {
   id: string;
   event_id: string;
   section: SectionType;
+  budget_category?: string;
   item_name: string;
+  required_date?: string | null;
+  quantity?: number;
+  uom?: string;
+  unit_price?: number;
   estimated_amount: number;
   actual_amount: number;
+  budget_status?: "Planning" | "Approved" | "Paid" | string;
   receipt_photo_url?: string | null;
   notes?: string | null;
   created_at: string;
+}
+
+export interface EventCommitteeMember {
+  id: string;
+  event_id: string;
+  order_index: number;
+  position_name: string;
+  pic_user_id?: string | null;
+  pic_name: string;
+  contact_notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface EventMinisterRow {
+  id: string;
+  event_id: string;
+  order_index: number;
+  ministry_role: string;
+  minister_names: string;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface EventProjectBriefDocument {
+  id: string;
+  event_id: string;
+  document_data: Record<string, unknown>;
+  org_chart_url?: string | null;
+  created_by: string;
+  updated_by?: string | null;
+  tasks_generated: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EventMeetingNote {

@@ -194,11 +194,43 @@ export const CreateToolInventorySchema = z.object({
 export const CreateBudgetItemSchema = z.object({
   event_id: z.string().uuid(),
   section: SectionTypeSchema,
-  item_name: z.string().min(2).max(300),
-  estimated_amount: z.number().min(0),
+  budget_category: z.string().max(120).optional().default("Dekorasi"),
+  item_name: z.string().min(2).max(2000),
+  required_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  quantity: z.number().min(0).default(1),
+  uom: z.string().min(1).max(40).default("Set"),
+  unit_price: z.number().min(0).default(0),
+  estimated_amount: z.number().min(0).optional(),
   actual_amount: z.number().min(0).default(0),
-  receipt_photo_url: z.string().url().nullable().optional(),
-  notes: z.string().max(1000).nullable().optional(),
+  budget_status: z.string().max(40).optional().default("Planning"),
+  receipt_photo_url: z.string().url().nullable().optional().or(z.literal("")),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+export const UpdateBudgetItemSchema = CreateBudgetItemSchema.partial().extend({
+  id: z.string().min(1),
+});
+
+export const CommitteeMemberRowSchema = z.object({
+  id: z.string().optional(),
+  order_index: z.number().int().min(0).default(0),
+  position_name: z.string().min(1, "Nama jabatan wajib diisi").max(200),
+  pic_user_id: z.string().uuid().nullable().optional(),
+  pic_name: z.string().min(1, "Nama PIC wajib diisi").max(200),
+  contact_notes: z.string().max(500).nullable().optional(),
+});
+
+export const MinisterRowSchema = z.object({
+  id: z.string().optional(),
+  order_index: z.number().int().min(0).default(0),
+  ministry_role: z.string().min(1, "Posisi / Tim pelayanan wajib diisi").max(200),
+  minister_names: z.string().min(1, "Nama pelayan wajib diisi").max(500),
+  notes: z.string().max(500).nullable().optional(),
+});
+
+export const SaveDocumentSchema = z.object({
+  document_data: z.record(z.unknown()),
+  org_chart_url: z.string().max(1000).nullable().optional(),
 });
 
 export const CreateShotlistSchema = z.object({

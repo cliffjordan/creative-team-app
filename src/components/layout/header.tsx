@@ -25,6 +25,7 @@ interface HeaderProps {
   roster?: EventRosterMember[];
   onOpenLogin?: () => void;
   onLogout?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export function Header({
@@ -35,6 +36,7 @@ export function Header({
   roster = [],
   onOpenLogin,
   onLogout,
+  onOpenProfile,
 }: HeaderProps) {
   const isLive = activeEvent?.status === "EVENT_DAY" && !!activeEvent?.live_started_at && !activeEvent?.live_ended_at;
   const [eventMenuOpen, setEventMenuOpen] = useState(false);
@@ -269,20 +271,43 @@ export function Header({
           )}
 
           {currentUser ? (
-            <div className="flex lg:hidden items-center gap-1.5">
-              <div className="flex flex-col text-right">
-                <div className="text-[11px] sm:text-xs font-bold text-slate-800 truncate max-w-[92px] sm:max-w-[130px]">
-                  {currentUser.full_name.split(" ")[0]}
-                </div>
-                <div className="text-[9px] sm:text-[10px] font-semibold text-indigo-600 uppercase truncate max-w-[92px] sm:max-w-[130px]">
-                  {currentUser.base_role.replace("_", " ")}
-                </div>
-              </div>
+            <div className="flex items-center gap-1.5">
+              {onOpenProfile ? (
+                <button
+                  type="button"
+                  onClick={onOpenProfile}
+                  title="Edit Profil Akun"
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-indigo-50/80 hover:border-indigo-200 px-2.5 py-1.5 transition text-left"
+                >
+                  <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0">
+                    {currentUser.full_name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="hidden sm:flex flex-col text-left">
+                    <span className="text-[11px] font-bold text-slate-800 truncate max-w-[110px] leading-tight">
+                      {currentUser.full_name.split(" ")[0]}
+                    </span>
+                    <span className="text-[9px] font-semibold text-indigo-600 uppercase truncate max-w-[110px] leading-tight">
+                      {currentUser.base_role.replace("_", " ")}
+                    </span>
+                  </div>
+                </button>
+              ) : (
+                <Link
+                  href="/profile"
+                  title="Edit Profil Akun"
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-indigo-50/80 px-2.5 py-1.5 transition"
+                >
+                  <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="text-[11px] font-bold text-slate-800 hidden sm:inline">
+                    {currentUser.full_name.split(" ")[0]}
+                  </span>
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={onLogout}
                 title="Ganti Akun / Logout"
-                className="w-9 h-9 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-rose-600 transition"
+                className="lg:hidden w-9 h-9 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-rose-600 transition"
               >
                 <LogOut className="w-4 h-4" />
               </button>

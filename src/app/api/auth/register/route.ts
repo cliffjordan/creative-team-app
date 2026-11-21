@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createServerClient } from "@/lib/supabase/server";
-import { hashPin } from "@/lib/auth/pin-hash";
+import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { hashPin, verifyPinHash } from "@/lib/auth/pin-hash";
 import {
   signSessionToken,
   getSessionCookieOptions,
 } from "@/lib/auth/session";
-import { UserBaseRoleSchema } from "@/lib/validators/schemas";
 
 const RegisterUserSchema = z.object({
   full_name: z.string().trim().min(2, "Nama lengkap minimal 2 karakter").max(120),
@@ -17,31 +16,11 @@ const RegisterUserSchema = z.object({
     .email("Format email tidak valid")
     .optional()
     .or(z.literal("")),
-  base_role: UserBaseRoleSchema.default("MEMBER"),
-  section: z.enum(["ACARA", "DEKORASI", "PERLENGKAPAN", "PDD"]).optional().nullable(),
   pin: z
     .string()
     .length(4, "PIN harus 4 digit")
     .regex(/^\d{4}$/, "PIN harus berupa 4 digit angka"),
 });
-
-function isSupabaseConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return Boolean(
-    url &&
-      key &&
-      !url.includes("demo.supabase.co") &&
-      !key.includes("demo-service-key")
-  );
-}
-
-const SECTION_LABEL_MAP: Record<string, string> = {
-  ACARA: "Acara",
-  DEKORASI: "Dekorasi",
-  PERLENGKAPAN: "Perlengkapan",
-  PDD: "PDD",
-};
 
 export async function POST(request: Request) {
   try {
@@ -59,30 +38,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const { full_name, phone, email, base_role, section, pin } = parsed.data;
+    const { full_name, phone, email, pin } = parsed.data;
     const normalizedEmail =
       email && email.trim().length > 0 ? email.trim().toLowerCase() : null;
-
-    let displayName = full_name.trim();
-    if (
-      section &&
-      (base_role === "SECTION_LEADER" || base_role === "MEMBER") &&
-      !displayName.toLowerCase().includes(SECTION_LABEL_MAP[section].toLowerCase())
-    ) {
-      const rolePrefix = base_role === "SECTION_LEADER" ? "Leader " : "";
-      displayName = `${displayName} (${rolePrefix}${SECTION_LABEL_MAP[section]})`;
-    }
-
     const pinHash = hashPin(pin);
 
     if (!isSupabaseConfigured()) {
       const newUser = {
         id: crypto.randomUUID(),
-        full_name: displayName,
+        full_name: full_name.trim(),
         email: normalizedEmail,
         phone: phone.trim(),
-        base_role,
-        is_superadmin: base_role === "CREATIVE_LEADER",
+        base_role: "CREATIVE_LEADER" as const,
+        default_section: "INTI" as const,
+        is_role_assigned: true,
+        is_superadmin: true,
         failed_pin_attempts: 0,
         created_at: new Date().toISOString(),
       };
@@ -124,22 +94,26 @@ export async function POST(request: Request) {
       .select("id", { count: "exact", head: true });
 
     const isFirstUser = (count ?? 0) === 0;
-    const effectiveRole = isFirstUser ? "CREATIVE_LEADER" : base_role;
-    const isSuperadmin = isFirstUser || effectiveRole === "CREATIVE_LEADER";
+    const effectiveRole = isFirstUser ? "CREATIVE_LEADER" : "MEMBER";
+    const isSuperadmin = isFirstUser;
+    const defaultSection = isFirstUser ? "INTI" : null;
+    const isRoleAssigned = isFirstUser;
 
     const { data: insertedUser, error: insertError } = await supabase
       .from("users")
       .insert({
-        full_name: displayName,
+        full_name: full_name.trim(),
         email: normalizedEmail,
         phone: phone.trim(),
         pin_hash: pinHash,
         base_role: effectiveRole,
+        default_section: defaultSection,
+        is_role_assigned: isRoleAssigned,
         is_superadmin: isSuperadmin,
         failed_pin_attempts: 0,
       })
       .select(
-        "id, full_name, email, phone, is_superadmin, base_role, avatar_url, failed_pin_attempts, locked_until, created_at"
+        "id, full_name, email, phone, is_superadmin, base_role, default_section, is_role_assigned, avatar_url, failed_pin_attempts, locked_until, created_at"
       )
       .single();
 
@@ -182,3 +156,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// Keep unused verifyPinHash cleanly avoided if needed
+void verifyPinHash;

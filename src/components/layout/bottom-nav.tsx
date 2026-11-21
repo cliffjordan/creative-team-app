@@ -15,6 +15,8 @@ import {
   BookOpen,
   CalendarDays,
   Presentation,
+  Users,
+  User as UserIcon,
   X,
   LogOut,
   LogIn,
@@ -23,8 +25,10 @@ import { cn } from "@/lib/utils";
 import { User, Event } from "@/types/domain";
 import {
   isCreativeLeader,
+  isUnassignedMember,
   getFinanceAccessMode,
   getNotesAccessMode,
+  getProposalAccessMode,
 } from "@/lib/mock-db";
 
 export type TabType =
@@ -37,7 +41,9 @@ export type TabType =
   | "calendar"
   | "finance"
   | "notes"
-  | "proposal";
+  | "proposal"
+  | "members"
+  | "profile";
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -55,6 +61,8 @@ const DRAWER_ONLY_TABS: TabType[] = [
   "finance",
   "notes",
   "proposal",
+  "members",
+  "profile",
 ];
 
 export function BottomNav({
@@ -73,17 +81,26 @@ export function BottomNav({
     !!activeEvent?.live_started_at &&
     !activeEvent?.live_ended_at;
 
+  const unassigned = isUnassignedMember(currentUser ?? null);
+
   const primaryTabs: Array<{
     id: TabType;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     liveDot?: boolean;
-  }> = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "live", label: "Live", icon: Radio, liveDot: isLive },
-    { id: "timeline", label: "Timeline", icon: CheckSquare },
-    { id: "sections", label: "Sections", icon: Layers },
-  ];
+  }> = unassigned
+    ? [
+        { id: "home", label: "Home", icon: Home },
+        { id: "timeline", label: "Timeline", icon: CheckSquare },
+        { id: "calendar", label: "Calendar", icon: Calendar },
+        { id: "profile", label: "Profil", icon: UserIcon },
+      ]
+    : [
+        { id: "home", label: "Home", icon: Home },
+        { id: "live", label: "Live", icon: Radio, liveDot: isLive },
+        { id: "timeline", label: "Timeline", icon: CheckSquare },
+        { id: "sections", label: "Sections", icon: Layers },
+      ];
 
   const workspaceItems: Array<{
     id: TabType;
@@ -93,23 +110,33 @@ export function BottomNav({
     liveDot?: boolean;
   }> = [
     { id: "home", label: "Home Dashboard", icon: Home },
-    { id: "live", label: "Live Rundowns", icon: Radio, liveDot: isLive },
-    {
-      id: "evaluation",
-      label: "Event Evaluations",
-      icon: ClipboardCheck,
-      badge: openIncidentsCount,
-    },
+    ...(!unassigned
+      ? [
+          { id: "live" as TabType, label: "Live Rundowns", icon: Radio, liveDot: isLive },
+          {
+            id: "evaluation" as TabType,
+            label: "Event Evaluations",
+            icon: ClipboardCheck,
+            badge: openIncidentsCount,
+          },
+        ]
+      : []),
     { id: "timeline", label: "Tasks & Timeline", icon: CheckSquare },
     { id: "calendar", label: "Calendar & Schedule", icon: Calendar },
-    { id: "sections", label: "Sections & Tools", icon: Layers },
+    ...(!unassigned ? [{ id: "sections" as TabType, label: "Sections & Tools", icon: Layers }] : []),
     ...(getFinanceAccessMode(currentUser ?? null) !== "LOCKED"
       ? [{ id: "finance" as TabType, label: "Pembiayaan & Anggaran", icon: Wallet }]
       : []),
     ...(getNotesAccessMode(currentUser ?? null) !== "LOCKED"
-      ? [{ id: "notes" as TabType, label: "Notulensi Rapat", icon: FileText }]
+      ? [{ id: "notes" as TabType, label: "Sekretariat", icon: FileText }]
       : []),
-    { id: "proposal", label: "Template Proposal", icon: BookOpen },
+    ...(getProposalAccessMode(currentUser ?? null) !== "LOCKED"
+      ? [{ id: "proposal" as TabType, label: "Dokumen Project Brief", icon: BookOpen }]
+      : []),
+    ...(isCreativeLeader(currentUser ?? null)
+      ? [{ id: "members" as TabType, label: "Manajemen Member", icon: Users }]
+      : []),
+    { id: "profile", label: "Edit Profil Akun", icon: UserIcon },
   ];
 
   const isMenuActive = isDrawerOpen || DRAWER_ONLY_TABS.includes(activeTab);
@@ -170,7 +197,11 @@ export function BottomNav({
             <div className="mb-4 p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
               {currentUser ? (
                 <div className="flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTab("profile")}
+                    className="flex items-center gap-2.5 min-w-0 text-left hover:opacity-80 transition"
+                  >
                     <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0">
                       {initials}
                     </div>
@@ -179,10 +210,10 @@ export function BottomNav({
                         {currentUser.full_name}
                       </div>
                       <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 truncate">
-                        {currentUser.base_role.replace("_", " ")}
+                        {currentUser.base_role.replace("_", " ")} • Edit Profil
                       </div>
                     </div>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {

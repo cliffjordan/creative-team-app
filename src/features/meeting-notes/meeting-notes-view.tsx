@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { INITIAL_EVENT, getNotesAccessMode } from "@/lib/mock-db";
+import { INITIAL_EVENT, getNotesAccessMode, isCreativeLeader } from "@/lib/mock-db";
 import { publishSyncMessage, subscribeSyncMessages } from "@/lib/sync/realtime-bus";
 import { Event, EventMeetingNote, User } from "@/types/domain";
 import { Card } from "@/components/ui/card";
@@ -44,7 +44,7 @@ export function MeetingNotesView({
   readOnly = false,
 }: MeetingNotesViewProps) {
   const accessMode = getNotesAccessMode(currentUser);
-  const effectiveReadOnly = readOnly || accessMode !== "EDIT";
+  const effectiveReadOnly = readOnly || (accessMode !== "EDIT" && !isCreativeLeader(currentUser));
 
   const [notes, setNotes] = useState<EventMeetingNote[]>(() => {
     if (typeof window === "undefined") return INITIAL_NOTES;
@@ -53,11 +53,7 @@ export function MeetingNotesView({
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return (parsed as EventMeetingNote[]).map((n) =>
-            n.recorded_by === "00000000-0000-0000-0000-000000000003"
-              ? { ...n, recorded_by: "00000000-0000-4000-8000-000000000003" }
-              : n
-          );
+          return parsed as EventMeetingNote[];
         }
       }
     } catch {
@@ -75,19 +71,32 @@ export function MeetingNotesView({
   const [recordedBy, setRecordedBy] = useState(currentUser?.full_name || "Sekretaris");
 
   useEffect(() => {
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/secretariat`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data?.success || !Array.isArray(data.notes)) return;
+          const remoteNotes = data.notes as EventMeetingNote[];
+          setNotes((prev) => {
+            const others = prev.filter((n) => n.event_id !== activeEvent.id);
+            const merged = [...remoteNotes, ...others];
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+              publishSyncMessage(STORAGE_KEY, merged);
+            } catch {}
+            return merged;
+          });
+        })
+        .catch(() => {});
+    }
+
     const unsubscribe = subscribeSyncMessages((msg) => {
       if (msg.key === STORAGE_KEY && Array.isArray(msg.payload)) {
-        setNotes(
-          (msg.payload as EventMeetingNote[]).map((n) =>
-            n.recorded_by === "00000000-0000-0000-0000-000000000003"
-              ? { ...n, recorded_by: "00000000-0000-4000-8000-000000000003" }
-              : n
-          )
-        );
+        setNotes(msg.payload as EventMeetingNote[]);
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [activeEvent.id]);
 
   const persistNotes = (next: EventMeetingNote[]) => {
     setNotes(next);
@@ -108,24 +117,49 @@ export function MeetingNotesView({
       ? eventNotes
       : eventNotes.filter((n) => n.meeting_type === filterType);
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     if (effectiveReadOnly || !notesContent.trim()) return;
-    const newNote: EventMeetingNote = {
+    let savedNote: EventMeetingNote = {
       id: `mn-${Date.now()}`,
       event_id: activeEvent.id,
       meeting_type: meetingType,
       meeting_date: meetingDate,
       notes_content: notesContent.trim(),
-      recorded_by: recordedBy.trim() || "Sekretaris",
+      recorded_by: currentUser?.id || recordedBy.trim() || "Sekretaris",
       created_at: new Date().toISOString(),
     };
-    persistNotes([newNote, ...notes]);
+
+    if (activeEvent.id) {
+      try {
+        const res = await fetch(`/api/events/${activeEvent.id}/secretariat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "note",
+            meeting_type: meetingType,
+            meeting_date: meetingDate,
+            notes_content: notesContent.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data?.note) {
+          savedNote = data.note as EventMeetingNote;
+        }
+      } catch {}
+    }
+
+    persistNotes([savedNote, ...notes]);
     setNotesContent("");
     setIsModalOpen(false);
   };
 
   const handleDeleteNote = (id: string) => {
     if (effectiveReadOnly) return;
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/secretariat?kind=note&itemId=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
     persistNotes(notes.filter((n) => n.id !== id));
   };
 

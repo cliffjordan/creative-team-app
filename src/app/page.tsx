@@ -20,6 +20,7 @@ import {
   INITIAL_LIVE_LOGS,
   canUserAccessEvent,
   isCreativeLeader,
+  isUnassignedMember,
 } from "@/lib/mock-db";
 import { getEventsAction } from "@/features/events/actions/event-actions";
 import { Header } from "@/components/layout/header";
@@ -50,11 +51,6 @@ const LiveStageView = dynamic(
   { ssr: false, loading: () => <TabSkeleton /> }
 );
 
-const RundownBuilderView = dynamic(
-  () => import("@/features/rundown-builder/rundown-builder-view").then((m) => m.RundownBuilderView),
-  { ssr: false, loading: () => <TabSkeleton /> }
-);
-
 const SectionsView = dynamic(
   () => import("@/features/sections/sections-view").then((m) => m.SectionsView),
   { ssr: false, loading: () => <TabSkeleton /> }
@@ -75,8 +71,8 @@ const FinanceView = dynamic(
   { ssr: false, loading: () => <TabSkeleton /> }
 );
 
-const MeetingNotesView = dynamic(
-  () => import("@/features/meeting-notes/meeting-notes-view").then((m) => m.MeetingNotesView),
+const SecretariatView = dynamic(
+  () => import("@/features/secretariat/secretariat-view").then((m) => m.SecretariatView),
   { ssr: false, loading: () => <TabSkeleton /> }
 );
 
@@ -87,6 +83,16 @@ const ProposalBuilderView = dynamic(
 
 const EvaluationView = dynamic(
   () => import("@/features/evaluation/evaluation-view").then((m) => m.EvaluationView),
+  { ssr: false, loading: () => <TabSkeleton /> }
+);
+
+const MemberManagementView = dynamic(
+  () => import("@/features/members/member-management-view").then((m) => m.MemberManagementView),
+  { ssr: false, loading: () => <TabSkeleton /> }
+);
+
+const ProfileEditView = dynamic(
+  () => import("@/features/profile/profile-edit-view").then((m) => m.ProfileEditView),
   { ssr: false, loading: () => <TabSkeleton /> }
 );
 
@@ -106,6 +112,7 @@ export default function Home() {
     users: authUsers,
     isLoading: isAuthLoading,
     setCurrentUserDirect,
+    refreshUsers,
     logout: authLogout,
   } = useAuth();
   // Active Tab defaults to Home Dashboard
@@ -178,9 +185,6 @@ export default function Home() {
       }
     });
 
-    return () => {
-      unsubscribe();
-    };
     // Sync real events from Supabase/server action
     getEventsAction()
       .then((res) => {
@@ -190,6 +194,10 @@ export default function Home() {
         }
       })
       .catch(() => {});
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const handleUpdateEvent = (updated: Partial<Event>) => {
@@ -288,6 +296,28 @@ export default function Home() {
     });
   };
 
+  const handleAppendGeneratedTasks = (generatedTasks: TimelineTask[]) => {
+    setTasks((prev) => {
+      const existingIds = new Set(prev.map((t) => t.id));
+      const next = [...generatedTasks.filter((t) => !existingIds.has(t.id)), ...prev];
+      try {
+        localStorage.setItem("CT_TASKS", JSON.stringify(next));
+      } catch {}
+      publishSyncMessage("CT_TASKS", next);
+      return next;
+    });
+  };
+
+  const handleOpenLogin = () => {
+    void refreshUsers();
+    setIsLoginModalOpen(true);
+  };
+
+  const unassignedMember = isUnassignedMember(currentUser);
+  const GENERAL_TABS: TabType[] = ["home", "timeline", "calendar", "profile"];
+  const effectiveActiveTab: TabType =
+    unassignedMember && !GENERAL_TABS.includes(activeTab) ? "home" : activeTab;
+
   const handleSuccessLogin = (user: User) => {
     setCurrentUser(user);
     setCurrentUserDirect(user);
@@ -349,7 +379,7 @@ export default function Home() {
   if (!currentUser) {
     return (
       <>
-        <ImmersiveLandingView onOpenLogin={() => setIsLoginModalOpen(true)} />
+        <ImmersiveLandingView onOpenLogin={handleOpenLogin} />
         <PinLoginModal
           isOpen={isLoginModalOpen}
           onClose={() => setIsLoginModalOpen(false)}
@@ -363,16 +393,16 @@ export default function Home() {
   return (
     <RealtimeProvider eventId={event.id}>
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex">
-      <InactivityTimeout disabled={activeTab === "live" && !!event.live_started_at && !event.live_ended_at} />
+      <InactivityTimeout disabled={effectiveActiveTab === "live" && !!event.live_started_at && !event.live_ended_at} />
 
       {/* Desktop Left Sidebar */}
       <SidebarNav
-        activeTab={activeTab}
+        activeTab={effectiveActiveTab}
         onChangeTab={setActiveTab}
         openIncidentsCount={openIncidentsCount}
         currentUser={currentUser}
         activeEvent={event}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenLogin={handleOpenLogin}
         onLogout={handleLogout}
       />
 
@@ -384,12 +414,29 @@ export default function Home() {
           events={accessibleEvents}
           roster={roster}
           onSelectEvent={handleSelectEvent}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
+          onOpenLogin={handleOpenLogin}
           onLogout={handleLogout}
+          onOpenProfile={() => setActiveTab("profile")}
         />
 
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto w-full pb-24 lg:pb-10">
-          {accessibleEvents.length === 0 ? (
+          {unassignedMember && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-900 flex items-center justify-between gap-3">
+              <span>
+                <strong>Status Akun: Member Umum</strong> — Akun Anda menunggu penetapan jabatan/divisi oleh Creative Leader. Saat ini hanya menu general (<em>Home, Timeline, Calendar, Profil</em>) yang terbuka.
+              </span>
+            </div>
+          )}
+
+          {effectiveActiveTab === "profile" ? (
+            <ProfileEditView currentUser={currentUser} />
+          ) : effectiveActiveTab === "members" ? (
+            <MemberManagementView
+              users={users}
+              currentUser={currentUser}
+              onRefreshUsers={refreshUsers}
+            />
+          ) : accessibleEvents.length === 0 ? (
             <div className="p-8 rounded-3xl bg-white border border-slate-200 shadow-sm text-center space-y-4 mt-8 max-w-md mx-auto animate-tab-enter">
               <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
                 <CalendarDays className="w-6 h-6" />
@@ -413,12 +460,13 @@ export default function Home() {
                       <Plus className="w-4 h-4" />
                       <span>Buat Event Pertama</span>
                     </Link>
-                    <Link
-                      href="/events"
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("members")}
                       className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition"
                     >
-                      <span>Buka Command Center</span>
-                    </Link>
+                      <span>Kelola Member</span>
+                    </button>
                   </div>
                 </>
               ) : (
@@ -433,8 +481,8 @@ export default function Home() {
               )}
             </div>
           ) : (
-            <div key={`${activeTab}-${event.id}`} className="animate-tab-enter">
-              {activeTab === "home" && (
+            <div key={`${effectiveActiveTab}-${event.id}`} className="animate-tab-enter">
+              {effectiveActiveTab === "home" && (
                 <HomeDashboardView
                   currentUser={currentUser}
                   activeEvent={event}
@@ -450,7 +498,7 @@ export default function Home() {
                 />
               )}
 
-              {activeTab === "live" && (
+              {effectiveActiveTab === "live" && (
                 <LiveStageView
                   event={event}
                   items={items}
@@ -464,7 +512,7 @@ export default function Home() {
                 />
               )}
 
-              {activeTab === "sections" && (
+              {effectiveActiveTab === "sections" && (
                 <SectionsView
                   users={users}
                   currentUser={currentUser}
@@ -476,7 +524,7 @@ export default function Home() {
                 />
               )}
 
-              {activeTab === "timeline" && (
+              {effectiveActiveTab === "timeline" && (
                 <TimelineView
                   tasks={tasks}
                   users={users}
@@ -490,7 +538,7 @@ export default function Home() {
                 />
               )}
 
-              {activeTab === "calendar" && (
+              {effectiveActiveTab === "calendar" && (
                 <CalendarView
                   events={accessibleEvents}
                   activeEvent={event}
@@ -505,19 +553,25 @@ export default function Home() {
                 />
               )}
 
-              {activeTab === "finance" && (
+              {effectiveActiveTab === "finance" && (
                 <FinanceView currentUser={currentUser} activeEvent={event} />
               )}
 
-              {activeTab === "notes" && (
-                <MeetingNotesView users={users} currentUser={currentUser} activeEvent={event} />
+              {effectiveActiveTab === "notes" && (
+                <SecretariatView users={users} currentUser={currentUser} activeEvent={event} />
               )}
 
-              {activeTab === "proposal" && (
-                <ProposalBuilderView activeEvent={event} items={items} />
+              {effectiveActiveTab === "proposal" && (
+                <ProposalBuilderView
+                  activeEvent={event}
+                  items={items}
+                  currentUser={currentUser}
+                  roster={roster}
+                  onTasksGenerated={handleAppendGeneratedTasks}
+                />
               )}
 
-              {activeTab === "evaluation" && (
+              {effectiveActiveTab === "evaluation" && (
                 <EvaluationView
                   event={event}
                   events={accessibleEvents}
@@ -536,12 +590,12 @@ export default function Home() {
 
       {/* Mobile Bottom Navigation */}
       <BottomNav
-        activeTab={activeTab}
+        activeTab={effectiveActiveTab}
         onChangeTab={setActiveTab}
         openIncidentsCount={openIncidentsCount}
         currentUser={currentUser}
         activeEvent={event}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenLogin={handleOpenLogin}
         onLogout={handleLogout}
       />
 

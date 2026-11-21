@@ -54,6 +54,12 @@ const CORE_LEADER_ROLES = new Set([
   "BENDAHARA",
 ]);
 
+export function isUnassignedMember(user: User | null): boolean {
+  if (!user) return false;
+  if (user.is_superadmin || user.base_role !== "MEMBER") return false;
+  return user.is_role_assigned === false || (!user.is_role_assigned && !user.default_section);
+}
+
 export function canUserAccessEvent(
   user: User | null,
   eventId: string,
@@ -63,7 +69,22 @@ export function canUserAccessEvent(
   if (user.is_superadmin || CORE_LEADER_ROLES.has(user.base_role)) {
     return true;
   }
+  if (isUnassignedMember(user)) {
+    return true;
+  }
   return roster.some((m) => m.event_id === eventId && m.user_id === user.id);
+}
+
+export function canUserInitiateBrief(
+  user: User | null,
+  event: Event,
+  roster: EventRosterMember[]
+): boolean {
+  if (!user) return false;
+  if (user.base_role === "CREATIVE_LEADER" || user.base_role === "WAKIL_LEADER" || user.is_superadmin) {
+    return true;
+  }
+  return isUserEventLeader(user, event, roster);
 }
 
 export function isUserEventLeader(
@@ -89,7 +110,7 @@ export function getSectionAccessMode(
   roster: EventRosterMember[],
   targetSection: SectionType
 ): SectionAccessMode {
-  if (!user) return "LOCKED";
+  if (!user || isUnassignedMember(user)) return "LOCKED";
 
   const isAssignedToSection = roster.some(
     (r) =>
@@ -98,6 +119,14 @@ export function getSectionAccessMode(
       (r.section === targetSection || r.section === "ALL")
   );
   if (isAssignedToSection) {
+    return "EDIT";
+  }
+
+  if (
+    user.default_section &&
+    (user.default_section === targetSection || user.default_section === "INTI" || user.default_section === "ALL") &&
+    user.base_role === "SECTION_LEADER"
+  ) {
     return "EDIT";
   }
 
@@ -114,7 +143,7 @@ export function getSectionAccessMode(
 }
 
 export function getFinanceAccessMode(user: User | null): SectionAccessMode {
-  if (!user) return "LOCKED";
+  if (!user || isUnassignedMember(user)) return "LOCKED";
   if (user.base_role === "BENDAHARA") return "EDIT";
   if (
     user.base_role === "CREATIVE_LEADER" ||
@@ -129,7 +158,7 @@ export function getFinanceAccessMode(user: User | null): SectionAccessMode {
 }
 
 export function getNotesAccessMode(user: User | null): SectionAccessMode {
-  if (!user) return "LOCKED";
+  if (!user || isUnassignedMember(user)) return "LOCKED";
   if (user.base_role === "SEKRETARIS") return "EDIT";
   if (
     user.base_role === "CREATIVE_LEADER" ||
@@ -141,6 +170,11 @@ export function getNotesAccessMode(user: User | null): SectionAccessMode {
     return "MONITOR";
   }
   return "LOCKED";
+}
+
+export function getProposalAccessMode(user: User | null): SectionAccessMode {
+  if (!user || isUnassignedMember(user)) return "LOCKED";
+  return "EDIT";
 }
 
 export function isCreativeLeader(user: User | null): boolean {
@@ -176,6 +210,10 @@ export function getUserHomeSection(
     if (anyMatch && anyMatch.section !== "ALL") {
       return anyMatch.section;
     }
+  }
+
+  if (user.default_section && user.default_section !== "ALL") {
+    return user.default_section;
   }
 
   const lower = user.full_name.toLowerCase();

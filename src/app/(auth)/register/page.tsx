@@ -6,30 +6,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { Button } from "@/components/ui/button";
-import { UserBaseRole } from "@/types/domain";
 import {
   ArrowLeft,
   AlertTriangle,
   CheckCircle2,
   KeyRound,
+  ShieldCheck,
   UserPlus,
 } from "lucide-react";
-
-const ROLE_OPTIONS: { value: UserBaseRole; label: string; desc: string }[] = [
-  { value: "CREATIVE_LEADER", label: "Creative Leader (Ketua)", desc: "Akses penuh manajemen event, roster & monitoring" },
-  { value: "WAKIL_LEADER", label: "Wakil Leader", desc: "Monitoring seluruh seksi & co-controller" },
-  { value: "SEKRETARIS", label: "Sekretaris", desc: "Pengelola notulensi rapat & proposal" },
-  { value: "BENDAHARA", label: "Bendahara", desc: "Pengelola pembiayaan & realisasi anggaran" },
-  { value: "SECTION_LEADER", label: "Section Leader", desc: "Pemimpin seksi Acara, Dekorasi, Perlengkapan, atau PDD" },
-  { value: "MEMBER", label: "Member / Anggota Tim", desc: "Anggota aktif dalam seksi pelayanan" },
-];
-
-const SECTION_OPTIONS = [
-  { value: "ACARA", label: "Seksi Acara (Rundown & MC)" },
-  { value: "DEKORASI", label: "Seksi Dekorasi" },
-  { value: "PERLENGKAPAN", label: "Seksi Perlengkapan" },
-  { value: "PDD", label: "Seksi PDD (Multimedia & Dokumentasi)" },
-] as const;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -40,16 +24,10 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [baseRole, setBaseRole] = useState<UserBaseRole>(
-    isFirstAccount ? "CREATIVE_LEADER" : "MEMBER"
-  );
-  const [section, setSection] = useState<"ACARA" | "DEKORASI" | "PERLENGKAPAN" | "PDD">("ACARA");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const needsSection = baseRole === "SECTION_LEADER" || baseRole === "MEMBER";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,8 +59,6 @@ export default function RegisterPage() {
           full_name: fullName.trim(),
           phone: phone.trim(),
           email: email.trim(),
-          base_role: baseRole,
-          section: needsSection ? section : null,
           pin,
         }),
       });
@@ -149,8 +125,8 @@ export default function RegisterPage() {
                   Daftarkan Akun Tim Pelayanan Anda.
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  Buat profil anggota dan tetapkan 4-digit PIN pribadi Anda untuk masuk ke workspace,
-                  memantau jadwal, dan menjalankan koordinasi panggung secara real-time.
+                  Buat profil anggota dan tetapkan 4-digit PIN pribadi Anda untuk masuk ke workspace
+                  dan terhubung dengan jadwal tim secara real-time.
                 </p>
               </div>
             </div>
@@ -160,8 +136,8 @@ export default function RegisterPage() {
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <span>
                   {isFirstAccount
-                    ? "Akun pertama yang terdaftar otomatis menjadi Creative Leader."
-                    : "Hak akses fitur otomatis menyesuaikan jabatan & divisi Anda."}
+                    ? "Akun pertama yang terdaftar otomatis ditetapkan sebagai Creative Leader (Superadmin)."
+                    : "Jabatan & divisi pelayanan ditetapkan langsung oleh Creative Leader setelah akun terdaftar."}
                 </span>
               </div>
               <div className="flex items-start gap-2">
@@ -179,9 +155,37 @@ export default function RegisterPage() {
                 <span>Formulir Pendaftaran Akun</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                Lengkapi data berikut agar akun Anda tersimpan di tabel{" "}
-                <code className="font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded">users</code>.
+                Cukup lengkapi identitas dasar dan buat 4-digit PIN Anda.
               </p>
+            </div>
+
+            {/* Auto-Role Information Pill */}
+            <div
+              className={`mb-4 flex items-start gap-2.5 rounded-2xl border p-3.5 text-xs ${
+                isFirstAccount
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-indigo-200 bg-indigo-50/70 text-indigo-900"
+              }`}
+            >
+              <ShieldCheck
+                className={`w-4 h-4 shrink-0 mt-0.5 ${
+                  isFirstAccount ? "text-amber-600" : "text-indigo-600"
+                }`}
+              />
+              <span>
+                {isFirstAccount ? (
+                  <>
+                    <strong>Status Pendaftar Pertama:</strong> Anda akan otomatis menjadi{" "}
+                    <strong>Creative Leader (Superadmin)</strong> untuk mengelola member dan event.
+                  </>
+                ) : (
+                  <>
+                    <strong>Penugasan Otomatis:</strong> Akun baru berstatus{" "}
+                    <strong>Member Umum</strong> (akses menu general) hingga Creative Leader
+                    menetapkan role &amp; divisi Anda.
+                  </>
+                )}
+              </span>
             </div>
 
             {errorMsg && (
@@ -202,7 +206,7 @@ export default function RegisterPage() {
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Contoh: Jordan Pratama"
+                    placeholder="Contoh: Cliff Jordan"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                 </div>
@@ -235,46 +239,6 @@ export default function RegisterPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Jabatan / Role Pelayanan *
-                  </label>
-                  <select
-                    value={baseRole}
-                    onChange={(e) => setBaseRole(e.target.value as UserBaseRole)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {needsSection && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Divisi / Section *
-                    </label>
-                    <select
-                      value={section}
-                      onChange={(e) =>
-                        setSection(e.target.value as "ACARA" | "DEKORASI" | "PERLENGKAPAN" | "PDD")
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
-                    >
-                      {SECTION_OPTIONS.map((sec) => (
-                        <option key={sec.value} value={sec.value}>
-                          {sec.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
               <div className="grid grid-cols-2 gap-3.5 pt-1">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
@@ -305,22 +269,19 @@ export default function RegisterPage() {
                     maxLength={4}
                     required
                     value={confirmPin}
-                    onChange={(e) =>
-                      setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))
-                    }
+                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
                     placeholder="••••"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-center font-mono text-lg font-bold tracking-[0.4em] text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-3">
                 <Button
                   type="submit"
                   variant="primary"
-                  size="lg"
                   disabled={submitting}
-                  className="w-full font-extrabold"
+                  className="w-full h-12 text-sm font-bold rounded-xl shadow-md"
                 >
                   {submitting ? "Mendaftarkan Akun..." : "Daftar & Masuk ke Workspace"}
                 </Button>

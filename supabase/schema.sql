@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS users (
   pin_hash TEXT NOT NULL, -- Stored as bcrypt hash: crypt('1234', gen_salt('bf'))
   is_superadmin BOOLEAN NOT NULL DEFAULT false,
   base_role user_base_role NOT NULL DEFAULT 'MEMBER',
+  default_section section_type,
+  is_role_assigned BOOLEAN NOT NULL DEFAULT false,
   avatar_url TEXT,
   failed_pin_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_pin_attempts >= 0),
   locked_until TIMESTAMPTZ,
@@ -284,11 +286,55 @@ CREATE TABLE IF NOT EXISTS event_budget_ledger (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   section section_type NOT NULL DEFAULT 'ALL',
+  budget_category TEXT NOT NULL DEFAULT 'Dekorasi',
   item_name TEXT NOT NULL,
+  required_date DATE,
+  quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
+  uom TEXT NOT NULL DEFAULT 'Set',
+  unit_price NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
   estimated_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (estimated_amount >= 0),
   actual_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (actual_amount >= 0),
+  budget_status TEXT NOT NULL DEFAULT 'Planning',
   receipt_photo_url TEXT,
   notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.9B EVENT COMMITTEE STRUCTURE (SEKRETARIAT -> STRUKTUR BUILDER)
+CREATE TABLE IF NOT EXISTS event_committee_structure (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  position_name TEXT NOT NULL,
+  pic_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  pic_name TEXT NOT NULL,
+  contact_notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.9C EVENT MINISTERS STRUCTURE (SEKRETARIAT -> STRUKTUR PELAYAN)
+CREATE TABLE IF NOT EXISTS event_ministers_structure (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  ministry_role TEXT NOT NULL,
+  minister_names TEXT NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.9D EVENT PROJECT BRIEF DOCUMENTS (1 DOCUMENT PER EVENT)
+CREATE TABLE IF NOT EXISTS event_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  document_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  org_chart_url TEXT,
+  created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  tasks_generated BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

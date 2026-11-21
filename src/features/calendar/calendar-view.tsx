@@ -4,10 +4,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   INITIAL_ROSTER,
   getAllowedSectionsForUser,
+  getFinanceAccessMode,
   getUsersBySection,
 } from "@/lib/mock-db";
+import { subscribeSyncMessages } from "@/lib/sync/realtime-bus";
 import {
   Event,
+  EventBudgetLedgerItem,
   EventRosterMember,
   RundownItem,
   SectionType,
@@ -19,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { formatCurrencyIDR } from "@/lib/utils";
 import {
   CalendarDays,
   ChevronLeft,
@@ -27,6 +31,7 @@ import {
   Search,
   CheckCircle2,
   Clock,
+  Wallet,
 } from "lucide-react";
 
 interface CalendarViewProps {
@@ -63,6 +68,53 @@ export function CalendarView({
   const [showEvents, setShowEvents] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
   const [showRundown, setShowRundown] = useState(true);
+  const [showBudgets, setShowBudgets] = useState(true);
+
+  const canViewBudgetSchedule = getFinanceAccessMode(currentUser) !== "LOCKED";
+  const [budgetItems, setBudgetItems] = useState<EventBudgetLedgerItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("CT_SECTION_BUDGETS");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed as EventBudgetLedgerItem[];
+      }
+    } catch {}
+    return [];
+  });
+  const [selectedBudget, setSelectedBudget] = useState<EventBudgetLedgerItem | null>(null);
+
+  useEffect(() => {
+    if (!activeEvent.id || !canViewBudgetSchedule) return;
+    let mounted = true;
+    fetch(`/api/events/${activeEvent.id}/budget`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!mounted || !data?.success || !Array.isArray(data.items)) return;
+        setBudgetItems((prev) => [
+          ...prev.filter((b) => b.event_id !== activeEvent.id),
+          ...(data.items as EventBudgetLedgerItem[]),
+        ]);
+      })
+      .catch(() => {});
+
+    const unsub = subscribeSyncMessages((msg) => {
+      if (msg.key === "CT_SECTION_BUDGETS" && Array.isArray(msg.payload)) {
+        setBudgetItems(msg.payload as EventBudgetLedgerItem[]);
+      }
+    });
+    return () => {
+      mounted = false;
+      unsub();
+    };
+  }, [activeEvent.id, canViewBudgetSchedule]);
+
+  const scheduledBudgets = useMemo(() => {
+    if (!canViewBudgetSchedule) return [];
+    return budgetItems.filter(
+      (b) => b.event_id === activeEvent.id && Boolean(b.required_date)
+    );
+  }, [budgetItems, activeEvent.id, canViewBudgetSchedule]);
 
   const [selectedTask, setSelectedTask] = useState<TimelineTask | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -317,6 +369,17 @@ export function CalendarView({
                 />
                 <span>Rundown ({items.length})</span>
               </label>
+              {canViewBudgetSchedule && (
+                <label className="flex items-center gap-2 text-emerald-700 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showBudgets}
+                    onChange={(e) => setShowBudgets(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>Pembiayaan / Belanja ({scheduledBudgets.length})</span>
+                </label>
+              )}
             </div>
           </Card>
         </div>
@@ -341,6 +404,10 @@ export function CalendarView({
                       const dayEvents = showEvents
                         ? events.filter((ev) => ev.event_date === d.iso)
                         : [];
+                      const dayBudgets =
+                        showBudgets && canViewBudgetSchedule
+                          ? scheduledBudgets.filter((b) => b.required_date === d.iso)
+                          : [];
 
                       return (
                         <div
@@ -368,6 +435,16 @@ export function CalendarView({
                               className="w-full px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold truncate block"
                             >
                               {ev.title}
+                            </button>
+                          ))}
+                          {dayBudgets.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setSelectedBudget(b)}
+                              className="w-full px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold truncate block"
+                            >
+                              💰 {b.item_name.split("\n")[0]}
                             </button>
                           ))}
                         </div>
@@ -460,6 +537,10 @@ export function CalendarView({
                   const dayEvents = showEvents
                     ? events.filter((ev) => ev.event_date === d.iso)
                     : [];
+                  const dayBudgets =
+                    showBudgets && canViewBudgetSchedule
+                      ? scheduledBudgets.filter((b) => b.required_date === d.iso)
+                      : [];
                   return (
                     <div
                       key={d.iso}
@@ -490,6 +571,16 @@ export function CalendarView({
                           className="w-full text-left px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-semibold truncate"
                         >
                           {t.title}
+                        </button>
+                      ))}
+                      {dayBudgets.slice(0, 2).map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => setSelectedBudget(b)}
+                          className="w-full text-left px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold truncate"
+                        >
+                          💰 {b.item_name.split("\n")[0]}
                         </button>
                       ))}
                     </div>
@@ -535,6 +626,52 @@ export function CalendarView({
             >
               {selectedTask.status === "DONE" ? "Batal Selesai" : "Tandai Selesai"}
             </Button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Budget Schedule Detail Modal */}
+      <Modal
+        isOpen={!!selectedBudget}
+        onClose={() => setSelectedBudget(null)}
+        title="Jadwal Pembiayaan / Belanja"
+        description={
+          selectedBudget?.required_date
+            ? `Tanggal Diperlukan: ${selectedBudget.required_date}`
+            : undefined
+        }
+      >
+        {selectedBudget && (
+          <div className="space-y-3 text-xs">
+            <div className="flex items-center gap-2">
+              <Badge variant="emerald" className="gap-1">
+                <Wallet className="w-3 h-3" />
+                {selectedBudget.section}
+              </Badge>
+              {selectedBudget.budget_status && (
+                <Badge variant="purple">{selectedBudget.budget_status}</Badge>
+              )}
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 whitespace-pre-line font-semibold text-slate-900">
+              {selectedBudget.item_name}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-slate-200 p-2.5">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Kuantitas</div>
+                <div className="font-bold text-slate-900 mt-0.5">
+                  {selectedBudget.quantity ?? 1} {selectedBudget.uom || "Set"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-2.5">
+                <div className="text-[10px] text-emerald-700 font-bold uppercase">Total Estimasi</div>
+                <div className="font-mono font-extrabold text-emerald-700 mt-0.5">
+                  {formatCurrencyIDR(selectedBudget.estimated_amount)}
+                </div>
+              </div>
+            </div>
+            {selectedBudget.notes && (
+              <p className="text-slate-600 leading-relaxed">{selectedBudget.notes}</p>
+            )}
           </div>
         )}
       </Modal>
