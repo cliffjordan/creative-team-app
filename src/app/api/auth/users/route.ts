@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
 import { INITIAL_USERS } from "@/lib/mock-db";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function isSupabaseConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,6 +18,7 @@ function isSupabaseConfigured(): boolean {
 }
 
 export async function GET() {
+  noStore();
   if (!isSupabaseConfigured()) {
     return NextResponse.json({
       success: true,
@@ -39,10 +42,17 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      users: data ?? [],
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        users: data ?? [],
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        },
+      }
+    );
   } catch {
     return NextResponse.json(
       { success: false, error: "Terjadi kesalahan server", users: [] },
