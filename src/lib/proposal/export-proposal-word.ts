@@ -443,6 +443,10 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
   const totalEst = data.budgetOverview.reduce((s, r) => s + (Number(r.estimated) || 0), 0);
   const totalAct = data.budgetOverview.reduce((s, r) => s + (Number(r.actual) || 0), 0);
   const totalDetail = data.budgetDetails.reduce((s, r) => s + (Number(r.estimatedAmount) || 0), 0);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const leftMarginImg = `${origin}/templates/pdf-assets/margin-left.png`;
+  const headerBandImg = `${origin}/templates/pdf-assets/header-band.png`;
+  const footerLogoImg = `${origin}/templates/pdf-assets/footer-logo.png`;
 
   const printWin = window.open("", "_blank", "width=960,height=1100");
   if (!printWin) {
@@ -456,22 +460,132 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
 <meta charset="utf-8" />
 <title>Event Project Brief - ${escapeHtml(data.eventName)}</title>
 <style>
-  @page { size: A4; margin: 22mm 14mm 18mm 22mm; }
-  * { box-sizing: border-box; }
-  body {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
     font-family: Calibri, "Segoe UI", Arial, sans-serif;
     font-size: 10pt;
     line-height: 1.45;
     color: #0f172a;
+    background: #FFFFFF;
+  }
+
+  /* Fixed Template Design Chrome repeating across every printed A4 page */
+  .print-left-margin {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 20mm;
+    height: 297mm;
+    z-index: 30;
+    pointer-events: none;
+  }
+  .print-left-margin img {
+    width: 20mm;
+    height: 297mm;
+    object-fit: cover;
+    display: block;
+  }
+  .print-header {
+    position: fixed;
+    top: 0;
+    left: 20mm;
+    width: 190mm;
+    height: 32.5mm;
+    background: #FFFFFF;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .print-header img {
+    width: 190mm;
+    height: 32.5mm;
+    object-fit: contain;
+    object-position: left top;
+    display: block;
+  }
+  .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 20mm;
+    width: 190mm;
+    height: 13mm;
+    background: #0B2545;
+    color: #FFFFFF;
+    padding: 0 14mm 0 6mm;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 8.5pt;
+    font-weight: 700;
+    z-index: 25;
+  }
+  .print-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .print-footer-left img {
+    width: 7.5mm;
+    height: 7.5mm;
+    object-fit: contain;
+    display: block;
+  }
+
+  /* Semantic print table wrapper reserves exact top/bottom spacers on all pages */
+  table.print-shell {
+    width: 100%;
+    border-collapse: collapse;
+    border: none;
     margin: 0;
   }
+  table.print-shell > thead > tr > td,
+  table.print-shell > tfoot > tr > td,
+  table.print-shell > tbody > tr > td.print-body {
+    border: none;
+    padding: 0;
+  }
+  .header-spacer {
+    height: 36mm;
+  }
+  .footer-spacer {
+    height: 17mm;
+  }
+  td.print-body {
+    padding: 0 14mm 0 25.5mm !important;
+  }
+
+  /* Screen preview comfort */
+  @media screen {
+    body {
+      background: #E2E8F0;
+      padding: 16px 0;
+    }
+    table.print-shell {
+      width: 210mm;
+      margin: 0 auto;
+      background: #FFFFFF;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
+    }
+  }
+
   .cover {
-    border-top: 6px solid #0B2545;
+    border-top: 5px solid #0B2545;
     border-bottom: 3px solid #31849B;
-    padding: 48px 28px;
+    padding: 46px 26px;
     background: #F8FAFC;
-    margin-bottom: 24px;
+    margin-top: 12mm;
+    margin-bottom: 10px;
     page-break-after: always;
+    break-after: page;
     text-align: center;
   }
   .cover-tag { font-size: 10pt; letter-spacing: 3px; color: #31849B; font-weight: bold; }
@@ -486,187 +600,218 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
     color: #0B2545;
     border-bottom: 2px solid #31849B;
     padding-bottom: 4px;
-    margin: 20px 0 10px;
+    margin: 16px 0 10px;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  .sub-title {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #0B2545;
+    margin: 12px 0 4px;
     page-break-after: avoid;
   }
-  .sub-title { font-size: 10.5pt; font-weight: 700; color: #0B2545; margin: 12px 0 4px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9.2pt; }
-  th, td { border: 1px solid #CBD5E1; padding: 6px 8px; vertical-align: top; }
-  th { background: #0B2545; color: #FFFFFF; font-weight: 700; text-align: left; }
+  .doc-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9pt; }
+  .doc-table th, .doc-table td { border: 1px solid #CBD5E1; padding: 5.5px 7.5px; vertical-align: top; }
+  .doc-table th { background: #0B2545; color: #FFFFFF; font-weight: 700; text-align: left; }
+  .doc-table tr { page-break-inside: avoid; break-inside: avoid; }
   .kv-key { width: 32%; background: #F0F6FA; font-weight: 700; color: #0B2545; }
   .total-row td { background: #F8FAFC; font-weight: 800; color: #0B2545; }
-  .group-row td { background: #F0F6FA; font-weight: 800; color: #0B2545; }
   .num { text-align: right; font-family: Consolas, monospace; }
   .center { text-align: center; }
-  p { margin: 0 0 6px; whitespace: pre-line; }
-  .footer-bar {
-    margin-top: 24px;
-    background: #0B2545;
-    color: #FFFFFF;
-    padding: 8px 12px;
-    font-size: 8.5pt;
-    display: flex;
-    justify-content: space-between;
-  }
+  p { margin: 0 0 6px; white-space: pre-line; }
 </style>
 </head>
 <body>
-  <div class="cover">
-    <div class="cover-tag">EVENT PROJECT BRIEF • EVENT PLANNING &amp; EXECUTION</div>
-    <div class="cover-title">${escapeHtml(data.eventName)}</div>
-    <div class="cover-theme">${escapeHtml(data.mainTheme)}</div>
-    <div class="cover-verse">
-      <strong>${escapeHtml(data.scriptureRef)}</strong><br/>
-      &ldquo;${escapeHtml(data.scriptureQuote)}&rdquo;
-    </div>
-    <div class="cover-meta">${escapeHtml(data.eventDate)} &nbsp;|&nbsp; ${escapeHtml(data.eventTime)}</div>
-    <div class="cover-meta" style="margin-top:4px; color:#31849B;">${escapeHtml(data.location)}</div>
-    <div class="cover-prep">PREPARED BY CREATIVE TEAM</div>
+  <div class="print-left-margin">
+    <img src="${escapeHtml(leftMarginImg)}" alt="" />
   </div>
-
-  <div class="sec-title">01. PROJECT OVERVIEW</div>
-  <table>
-    <tr><td class="kv-key">Main Theme</td><td>${escapeHtml(data.mainTheme)}</td></tr>
-    <tr><td class="kv-key">Scripture / Biblical Foundation</td><td>${escapeHtml(data.scriptureRef)} — "${escapeHtml(data.scriptureQuote)}"</td></tr>
-    <tr><td class="kv-key">Tagline</td><td>${escapeHtml(data.tagline)}</td></tr>
-    <tr><td class="kv-key">Background</td><td style="white-space:pre-line;">${escapeHtml(data.background)}</td></tr>
-    <tr><td class="kv-key">Key Message</td><td>${escapeHtml(data.keyMessage)}</td></tr>
-    <tr><td class="kv-key">Project Objectives</td><td style="white-space:pre-line;">${escapeHtml(data.objectives)}</td></tr>
-    <tr><td class="kv-key">Target Audience</td><td>${escapeHtml(data.targetAudience)}</td></tr>
-    <tr><td class="kv-key">Core Concept</td><td style="white-space:pre-line;">${escapeHtml(data.coreConcept)}</td></tr>
-  </table>
-
-  <div class="sec-title">02. EVENT EXPERIENCE &amp; PARTICIPANT JOURNEY</div>
-  <table><tr><td class="kv-key">Desired Atmosphere</td><td>${escapeHtml(data.desiredAtmosphere)}</td></tr></table>
-  <table>
-    <thead><tr><th style="width:55px;" class="center">Tahap</th><th style="width:140px;">Fase</th><th>Pengalaman Peserta (Participant Journey)</th></tr></thead>
-    <tbody>
-      <tr><td class="center">1</td><td><strong>Before Event</strong></td><td>${escapeHtml(data.journeyBefore)}</td></tr>
-      <tr><td class="center">2</td><td><strong>Arrival</strong></td><td>${escapeHtml(data.journeyArrival)}</td></tr>
-      <tr><td class="center">3</td><td><strong>Opening</strong></td><td>${escapeHtml(data.journeyOpening)}</td></tr>
-      <tr><td class="center">4</td><td><strong>Main Experience</strong></td><td>${escapeHtml(data.journeyMain)}</td></tr>
-      <tr><td class="center">5</td><td><strong>Closing</strong></td><td>${escapeHtml(data.journeyClosing)}</td></tr>
-      <tr><td class="center">6</td><td><strong>After Event</strong></td><td>${escapeHtml(data.journeyAfter)}</td></tr>
-    </tbody>
-  </table>
-
-  <div class="sec-title">03A. SECTION — ACARA</div>
-  <table>
-    <tr><td class="kv-key">Main Concept</td><td>${escapeHtml(data.acaraConcept)}</td></tr>
-    <tr><td class="kv-key">Activity / Program</td><td>${escapeHtml(data.acaraProgram)}</td></tr>
-    <tr><td class="kv-key">Special Moment</td><td>${escapeHtml(data.acaraSpecialMoment)}</td></tr>
-    <tr><td class="kv-key">Talent / Speaker / Performer</td><td>${escapeHtml(data.acaraTalent)}</td></tr>
-    <tr><td class="kv-key">Estimated Duration</td><td>${escapeHtml(data.acaraDuration)}</td></tr>
-    <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.acaraSpecialReq)}</td></tr>
-  </table>
-
-  <div class="sec-title">03B. SECTION — DEKORASI</div>
-  <table>
-    <tr><td class="kv-key">Decoration Concept</td><td>${escapeHtml(data.decorConcept)}</td></tr>
-    <tr><td class="kv-key">Visual Style</td><td>${escapeHtml(data.decorStyle)}</td></tr>
-    <tr><td class="kv-key">Color Palette</td><td>${escapeHtml(data.decorPalette)}</td></tr>
-    <tr><td class="kv-key">Main Visual / Key Visual</td><td>${escapeHtml(data.decorKeyVisual)}</td></tr>
-    <tr><td class="kv-key">Decoration Areas</td><td>${escapeHtml(data.decorAreas)}</td></tr>
-    <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.decorSpecialReq)}</td></tr>
-  </table>
-  <div class="sub-title">Visualisasi Dekorasi</div>
-  <table><tr><td>${safeDecorImg ? `Mockup: ${escapeHtml(safeDecorImg)}` : "[Gambar Referensi / Mockup Dekorasi Panggung]"}</td></tr></table>
-  <div class="sub-title">Daftar Kebutuhan Item Dekorasi</div>
-  <table>
-    <thead><tr><th style="width:42px;" class="center">No.</th><th style="width:200px;">Item Dekorasi</th><th style="width:70px;" class="center">Qty</th><th>Keterangan / Fungsi</th></tr></thead>
-    <tbody>
-      ${data.decorItems.map((d, idx) => `<tr><td class="center">${idx + 1}</td><td>${escapeHtml(d.name)}</td><td class="center">${escapeHtml(d.qty)}</td><td>${escapeHtml(d.description)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-
-  <div class="sec-title">03C. SECTION — PERLENGKAPAN &amp; TEKNIS</div>
-  <table>
-    <thead><tr><th style="width:42px;" class="center">No.</th><th style="width:180px;">Equipment / Peralatan</th><th style="width:70px;" class="center">Qty</th><th>Purpose / Kegunaan</th><th style="width:85px;" class="center">Priority</th></tr></thead>
-    <tbody>
-      ${data.equipmentItems.map((e, idx) => `<tr><td class="center">${idx + 1}</td><td>${escapeHtml(e.name)}</td><td class="center">${escapeHtml(e.qty)}</td><td>${escapeHtml(e.purpose)}</td><td class="center">${escapeHtml(e.priority)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-  <table><tr><td><strong>Special Technical Requirements</strong><br/>${escapeHtml(data.techRequirements)}</td></tr></table>
-
-  <div class="sec-title">03D. SECTION — DOKUMENTASI</div>
-  <table>
-    <tr><td class="kv-key">Documentation Objective</td><td>${escapeHtml(data.docObjective)}</td></tr>
-    <tr><td class="kv-key">Required Content</td><td>${escapeHtml(data.docContent)}</td></tr>
-    <tr><td class="kv-key">Priority Moments (Shot List)</td><td>${escapeHtml(data.docShotlist)}</td></tr>
-    <tr><td class="kv-key">Publication Platforms</td><td>${escapeHtml(data.docPlatforms)}</td></tr>
-    <tr><td class="kv-key">Output Target</td><td>${escapeHtml(data.docTarget)}</td></tr>
-  </table>
-
-  <div class="sec-title">04. BUDGET OVERVIEW</div>
-  <table>
-    <thead><tr><th>Kategori</th><th class="num">Estimasi Anggaran</th><th class="num">Realisasi (Actual)</th><th class="center">Status</th></tr></thead>
-    <tbody>
-      ${data.budgetOverview.map((b) => `<tr><td>${escapeHtml(b.category)}</td><td class="num">${formatRupiah(b.estimated)}</td><td class="num">${b.actual > 0 ? formatRupiah(b.actual) : "—"}</td><td class="center">${escapeHtml(b.status)}</td></tr>`).join("")}
-      <tr class="total-row"><td>TOTAL ESTIMASI</td><td class="num">${formatRupiah(totalEst)}</td><td class="num">${totalAct > 0 ? formatRupiah(totalAct) : "—"}</td><td class="center">Synced</td></tr>
-    </tbody>
-  </table>
-
-  ${data.budgetDetails.length > 0 ? `
-  <div class="sub-title">Estimasi Keperluan Budget Rinci</div>
-  <table>
-    <thead><tr><th>Keperluan</th><th class="center">Tgl Diperlukan</th><th class="center">Qty</th><th class="center">UOM</th><th class="num">Harga Satuan</th><th class="num">Total</th><th>Keterangan</th></tr></thead>
-    <tbody>
-      ${data.budgetDetails.map((d) => `<tr><td style="white-space:pre-line;">${escapeHtml(d.itemName)}</td><td class="center">${escapeHtml(d.requiredDate)}</td><td class="center">${d.qty}</td><td class="center">${escapeHtml(d.uom)}</td><td class="num">${formatRupiah(d.unitPrice)}</td><td class="num"><strong>${formatRupiah(d.estimatedAmount)}</strong></td><td>${escapeHtml(d.notes)}</td></tr>`).join("")}
-      <tr class="total-row"><td colspan="5" class="center">Total Rincian</td><td class="num">${formatRupiah(totalDetail)}</td><td></td></tr>
-    </tbody>
-  </table>` : ""}
-
-  <div class="sec-title">05. KEY PEOPLE &amp; PIC (STRUKTUR PANITIA)</div>
-  <table><tr><td>${safeOrgUrl ? `Bagan Organisasi: ${escapeHtml(safeOrgUrl)}` : "[Struktur Organisasi Panitia Event]"}</td></tr></table>
-  <table>
-    <thead><tr><th style="width:32%;">Jabatan / Seksi</th><th style="width:34%;">Penanggung Jawab (PIC)</th><th>Kontak / Catatan</th></tr></thead>
-    <tbody>
-      ${(data.committee.length > 0 ? data.committee : [{ role: "-", pic: "Belum diisi di menu Sekretariat", contact: "-" }]).map((c) => `<tr><td><strong>${escapeHtml(c.role)}</strong></td><td>${escapeHtml(c.pic)}</td><td>${escapeHtml(c.contact)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-
-  <div class="sec-title">06. DAFTAR PELAYAN ACARA</div>
-  <table>
-    <thead><tr><th style="width:30%;">Posisi / Tim</th><th style="width:42%;">Nama Pelayan</th><th>Keterangan</th></tr></thead>
-    <tbody>
-      ${(data.ministers.length > 0 ? data.ministers : [{ role: "-", members: "Belum diisi di menu Sekretariat", notes: "-" }]).map((m) => `<tr><td><strong>${escapeHtml(m.role)}</strong></td><td>${escapeHtml(m.members)}</td><td>${escapeHtml(m.notes)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-
-  <div class="sec-title">07. SUSUNAN ACARA (RUNDOWN)</div>
-  <table>
-    <thead><tr><th>Total Durasi Acara</th><th>Jam Open Gate</th><th>Jam Mulai</th><th>Jam Selesai</th></tr></thead>
-    <tbody><tr><td>${escapeHtml(data.rundownTotalDuration)}</td><td>${escapeHtml(data.rundownOpenGate)}</td><td>${escapeHtml(data.rundownStartTime)}</td><td>${escapeHtml(data.rundownEndTime)}</td></tr></tbody>
-  </table>
-  <table>
-    <thead><tr><th style="width:95px;">Waktu</th><th style="width:75px;">Durasi</th><th>Kegiatan</th><th style="width:120px;">PIC</th><th>Keterangan / Catatan Teknis</th></tr></thead>
-    <tbody>
-      ${(data.rundown.length > 0 ? data.rundown : [{ time: "-", duration: "-", activity: "Belum ada segmen rundown", pic: "-", notes: "-" }]).map((r) => `<tr><td>${escapeHtml(r.time)}</td><td>${escapeHtml(r.duration)}</td><td><strong>${escapeHtml(r.activity)}</strong></td><td>${escapeHtml(r.pic)}</td><td>${escapeHtml(r.notes)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-
-  <div class="sec-title">08. TEKNIS PELAKSANAAN</div>
-  <div class="sub-title">08.1 Teknis Acara &amp; Usher</div>
-  <p>${escapeHtml(data.techEvent1)}</p><p>${escapeHtml(data.techEvent2)}</p><p>${escapeHtml(data.techEvent3)}</p>
-  <div class="sub-title">08.2 Teknis Sesi Khusus</div>
-  <p>${escapeHtml(data.techSpecial1)}</p><p>${escapeHtml(data.techSpecial2)}</p><p>${escapeHtml(data.techSpecial3)}</p>
-  <div class="sub-title">08.3 Teknis Penampilan / Pengisi Acara</div>
-  <p>${escapeHtml(data.techPerf1)}</p><p>${escapeHtml(data.techPerf2)}</p><p>${escapeHtml(data.techPerf3)}</p>
-
-  <div class="sec-title">09. APPROVAL &amp; FINAL CREATIVE DIRECTION</div>
-  <table>
-    <thead><tr><th>Role</th><th>Name</th><th style="width:110px;">Sign</th><th style="width:90px;">Date</th></tr></thead>
-    <tbody>
-      ${data.approvals.map((a) => `<tr><td><strong>${escapeHtml(a.role)}</strong></td><td>${escapeHtml(a.name)}</td><td style="height:34px;"></td><td>${escapeHtml(a.date)}</td></tr>`).join("")}
-    </tbody>
-  </table>
-  <table><tr><td><strong>Final Creative Direction</strong><br/>${escapeHtml(data.finalCreativeDirection)}</td></tr></table>
-
-  <div class="footer-bar">
-    <span>Creative Team Project | Brief&rsquo;s</span>
+  <div class="print-header">
+    <img src="${escapeHtml(headerBandImg)}" alt="" />
+  </div>
+  <div class="print-footer">
+    <div class="print-footer-left">
+      <img src="${escapeHtml(footerLogoImg)}" alt="" />
+      <span>Creative Team Project &nbsp;|&nbsp; Brief&rsquo;s</span>
+    </div>
     <span>${escapeHtml(data.eventName)}</span>
   </div>
-  <script>window.onload = function() { setTimeout(function() { window.print(); }, 250); };</script>
+
+  <table class="print-shell">
+    <thead><tr><td><div class="header-spacer"></div></td></tr></thead>
+    <tfoot><tr><td><div class="footer-spacer"></div></td></tr></tfoot>
+    <tbody>
+      <tr>
+        <td class="print-body">
+          <div class="cover">
+            <div class="cover-tag">EVENT PROJECT BRIEF &bull; EVENT PLANNING &amp; EXECUTION</div>
+            <div class="cover-title">${escapeHtml(data.eventName)}</div>
+            <div class="cover-theme">${escapeHtml(data.mainTheme)}</div>
+            <div class="cover-verse">
+              <strong>${escapeHtml(data.scriptureRef)}</strong><br/>
+              &ldquo;${escapeHtml(data.scriptureQuote)}&rdquo;
+            </div>
+            <div class="cover-meta">${escapeHtml(data.eventDate)} &nbsp;|&nbsp; ${escapeHtml(data.eventTime)}</div>
+            <div class="cover-meta" style="margin-top:4px; color:#31849B;">${escapeHtml(data.location)}</div>
+            <div class="cover-prep">PREPARED BY CREATIVE TEAM</div>
+          </div>
+
+          <div class="sec-title">01. PROJECT OVERVIEW</div>
+          <table class="doc-table">
+            <tr><td class="kv-key">Main Theme</td><td>${escapeHtml(data.mainTheme)}</td></tr>
+            <tr><td class="kv-key">Scripture / Biblical Foundation</td><td>${escapeHtml(data.scriptureRef)} &mdash; &ldquo;${escapeHtml(data.scriptureQuote)}&rdquo;</td></tr>
+            <tr><td class="kv-key">Tagline</td><td>${escapeHtml(data.tagline)}</td></tr>
+            <tr><td class="kv-key">Background</td><td style="white-space:pre-line;">${escapeHtml(data.background)}</td></tr>
+            <tr><td class="kv-key">Key Message</td><td>${escapeHtml(data.keyMessage)}</td></tr>
+            <tr><td class="kv-key">Project Objectives</td><td style="white-space:pre-line;">${escapeHtml(data.objectives)}</td></tr>
+            <tr><td class="kv-key">Target Audience</td><td>${escapeHtml(data.targetAudience)}</td></tr>
+            <tr><td class="kv-key">Core Concept</td><td style="white-space:pre-line;">${escapeHtml(data.coreConcept)}</td></tr>
+          </table>
+
+          <div class="sec-title">02. EVENT EXPERIENCE &amp; PARTICIPANT JOURNEY</div>
+          <table class="doc-table"><tr><td class="kv-key">Desired Atmosphere</td><td>${escapeHtml(data.desiredAtmosphere)}</td></tr></table>
+          <table class="doc-table">
+            <thead><tr><th style="width:55px;" class="center">Tahap</th><th style="width:140px;">Fase</th><th>Pengalaman Peserta (Participant Journey)</th></tr></thead>
+            <tbody>
+              <tr><td class="center">1</td><td><strong>Before Event</strong></td><td>${escapeHtml(data.journeyBefore)}</td></tr>
+              <tr><td class="center">2</td><td><strong>Arrival</strong></td><td>${escapeHtml(data.journeyArrival)}</td></tr>
+              <tr><td class="center">3</td><td><strong>Opening</strong></td><td>${escapeHtml(data.journeyOpening)}</td></tr>
+              <tr><td class="center">4</td><td><strong>Main Experience</strong></td><td>${escapeHtml(data.journeyMain)}</td></tr>
+              <tr><td class="center">5</td><td><strong>Closing</strong></td><td>${escapeHtml(data.journeyClosing)}</td></tr>
+              <tr><td class="center">6</td><td><strong>After Event</strong></td><td>${escapeHtml(data.journeyAfter)}</td></tr>
+            </tbody>
+          </table>
+
+          <div class="sec-title">03A. SECTION &mdash; ACARA</div>
+          <table class="doc-table">
+            <tr><td class="kv-key">Main Concept</td><td>${escapeHtml(data.acaraConcept)}</td></tr>
+            <tr><td class="kv-key">Activity / Program</td><td>${escapeHtml(data.acaraProgram)}</td></tr>
+            <tr><td class="kv-key">Special Moment</td><td>${escapeHtml(data.acaraSpecialMoment)}</td></tr>
+            <tr><td class="kv-key">Talent / Speaker / Performer</td><td>${escapeHtml(data.acaraTalent)}</td></tr>
+            <tr><td class="kv-key">Estimated Duration</td><td>${escapeHtml(data.acaraDuration)}</td></tr>
+            <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.acaraSpecialReq)}</td></tr>
+          </table>
+
+          <div class="sec-title">03B. SECTION &mdash; DEKORASI</div>
+          <table class="doc-table">
+            <tr><td class="kv-key">Decoration Concept</td><td>${escapeHtml(data.decorConcept)}</td></tr>
+            <tr><td class="kv-key">Visual Style</td><td>${escapeHtml(data.decorStyle)}</td></tr>
+            <tr><td class="kv-key">Color Palette</td><td>${escapeHtml(data.decorPalette)}</td></tr>
+            <tr><td class="kv-key">Main Visual / Key Visual</td><td>${escapeHtml(data.decorKeyVisual)}</td></tr>
+            <tr><td class="kv-key">Decoration Areas</td><td>${escapeHtml(data.decorAreas)}</td></tr>
+            <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.decorSpecialReq)}</td></tr>
+          </table>
+          <div class="sub-title">Visualisasi Dekorasi</div>
+          <table class="doc-table"><tr><td>${safeDecorImg ? `Mockup: ${escapeHtml(safeDecorImg)}` : "[Gambar Referensi / Mockup Dekorasi Panggung]"}</td></tr></table>
+          <div class="sub-title">Daftar Kebutuhan Item Dekorasi</div>
+          <table class="doc-table">
+            <thead><tr><th style="width:42px;" class="center">No.</th><th style="width:200px;">Item Dekorasi</th><th style="width:70px;" class="center">Qty</th><th>Keterangan / Fungsi</th></tr></thead>
+            <tbody>
+              ${data.decorItems.map((d, idx) => `<tr><td class="center">${idx + 1}</td><td>${escapeHtml(d.name)}</td><td class="center">${escapeHtml(d.qty)}</td><td>${escapeHtml(d.description)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <div class="sec-title">03C. SECTION &mdash; PERLENGKAPAN &amp; TEKNIS</div>
+          <table class="doc-table">
+            <thead><tr><th style="width:42px;" class="center">No.</th><th style="width:180px;">Equipment / Peralatan</th><th style="width:70px;" class="center">Qty</th><th>Purpose / Kegunaan</th><th style="width:85px;" class="center">Priority</th></tr></thead>
+            <tbody>
+              ${data.equipmentItems.map((e, idx) => `<tr><td class="center">${idx + 1}</td><td>${escapeHtml(e.name)}</td><td class="center">${escapeHtml(e.qty)}</td><td>${escapeHtml(e.purpose)}</td><td class="center">${escapeHtml(e.priority)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+          <table class="doc-table"><tr><td><strong>Special Technical Requirements</strong><br/>${escapeHtml(data.techRequirements)}</td></tr></table>
+
+          <div class="sec-title">03D. SECTION &mdash; DOKUMENTASI</div>
+          <table class="doc-table">
+            <tr><td class="kv-key">Documentation Objective</td><td>${escapeHtml(data.docObjective)}</td></tr>
+            <tr><td class="kv-key">Required Content</td><td>${escapeHtml(data.docContent)}</td></tr>
+            <tr><td class="kv-key">Priority Moments (Shot List)</td><td>${escapeHtml(data.docShotlist)}</td></tr>
+            <tr><td class="kv-key">Publication Platforms</td><td>${escapeHtml(data.docPlatforms)}</td></tr>
+            <tr><td class="kv-key">Output Target</td><td>${escapeHtml(data.docTarget)}</td></tr>
+          </table>
+
+          <div class="sec-title">04. BUDGET OVERVIEW</div>
+          <table class="doc-table">
+            <thead><tr><th>Kategori</th><th class="num">Estimasi Anggaran</th><th class="num">Realisasi (Actual)</th><th class="center">Status</th></tr></thead>
+            <tbody>
+              ${data.budgetOverview.map((b) => `<tr><td>${escapeHtml(b.category)}</td><td class="num">${formatRupiah(b.estimated)}</td><td class="num">${b.actual > 0 ? formatRupiah(b.actual) : "&mdash;"}</td><td class="center">${escapeHtml(b.status)}</td></tr>`).join("")}
+              <tr class="total-row"><td>TOTAL ESTIMASI</td><td class="num">${formatRupiah(totalEst)}</td><td class="num">${totalAct > 0 ? formatRupiah(totalAct) : "&mdash;"}</td><td class="center">Synced</td></tr>
+            </tbody>
+          </table>
+
+          ${data.budgetDetails.length > 0 ? `
+          <div class="sub-title">Estimasi Keperluan Budget Rinci</div>
+          <table class="doc-table">
+            <thead><tr><th>Keperluan</th><th class="center">Tgl Diperlukan</th><th class="center">Qty</th><th class="center">UOM</th><th class="num">Harga Satuan</th><th class="num">Total</th><th>Keterangan</th></tr></thead>
+            <tbody>
+              ${data.budgetDetails.map((d) => `<tr><td style="white-space:pre-line;">${escapeHtml(d.itemName)}</td><td class="center">${escapeHtml(d.requiredDate)}</td><td class="center">${d.qty}</td><td class="center">${escapeHtml(d.uom)}</td><td class="num">${formatRupiah(d.unitPrice)}</td><td class="num"><strong>${formatRupiah(d.estimatedAmount)}</strong></td><td>${escapeHtml(d.notes)}</td></tr>`).join("")}
+              <tr class="total-row"><td colspan="5" class="center">Total Rincian</td><td class="num">${formatRupiah(totalDetail)}</td><td></td></tr>
+            </tbody>
+          </table>` : ""}
+
+          <div class="sec-title">05. KEY PEOPLE &amp; PIC (STRUKTUR PANITIA)</div>
+          <table class="doc-table"><tr><td>${safeOrgUrl ? `Bagan Organisasi: ${escapeHtml(safeOrgUrl)}` : "[Struktur Organisasi Panitia Event]"}</td></tr></table>
+          <table class="doc-table">
+            <thead><tr><th style="width:32%;">Jabatan / Seksi</th><th style="width:34%;">Penanggung Jawab (PIC)</th><th>Kontak / Catatan</th></tr></thead>
+            <tbody>
+              ${(data.committee.length > 0 ? data.committee : [{ role: "-", pic: "Belum diisi di menu Sekretariat", contact: "-" }]).map((c) => `<tr><td><strong>${escapeHtml(c.role)}</strong></td><td>${escapeHtml(c.pic)}</td><td>${escapeHtml(c.contact)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <div class="sec-title">06. DAFTAR PELAYAN ACARA</div>
+          <table class="doc-table">
+            <thead><tr><th style="width:30%;">Posisi / Tim</th><th style="width:42%;">Nama Pelayan</th><th>Keterangan</th></tr></thead>
+            <tbody>
+              ${(data.ministers.length > 0 ? data.ministers : [{ role: "-", members: "Belum diisi di menu Sekretariat", notes: "-" }]).map((m) => `<tr><td><strong>${escapeHtml(m.role)}</strong></td><td>${escapeHtml(m.members)}</td><td>${escapeHtml(m.notes)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <div class="sec-title">07. SUSUNAN ACARA (RUNDOWN)</div>
+          <table class="doc-table">
+            <thead><tr><th>Total Durasi Acara</th><th>Jam Open Gate</th><th>Jam Mulai</th><th>Jam Selesai</th></tr></thead>
+            <tbody><tr><td>${escapeHtml(data.rundownTotalDuration)}</td><td>${escapeHtml(data.rundownOpenGate)}</td><td>${escapeHtml(data.rundownStartTime)}</td><td>${escapeHtml(data.rundownEndTime)}</td></tr></tbody>
+          </table>
+          <table class="doc-table">
+            <thead><tr><th style="width:95px;">Waktu</th><th style="width:75px;">Durasi</th><th>Kegiatan</th><th style="width:120px;">PIC</th><th>Keterangan / Catatan Teknis</th></tr></thead>
+            <tbody>
+              ${(data.rundown.length > 0 ? data.rundown : [{ time: "-", duration: "-", activity: "Belum ada segmen rundown", pic: "-", notes: "-" }]).map((r) => `<tr><td>${escapeHtml(r.time)}</td><td>${escapeHtml(r.duration)}</td><td><strong>${escapeHtml(r.activity)}</strong></td><td>${escapeHtml(r.pic)}</td><td>${escapeHtml(r.notes)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <div class="sec-title">08. TEKNIS PELAKSANAAN</div>
+          <div class="sub-title">08.1 Teknis Acara &amp; Usher</div>
+          <p>${escapeHtml(data.techEvent1)}</p><p>${escapeHtml(data.techEvent2)}</p><p>${escapeHtml(data.techEvent3)}</p>
+          <div class="sub-title">08.2 Teknis Sesi Khusus</div>
+          <p>${escapeHtml(data.techSpecial1)}</p><p>${escapeHtml(data.techSpecial2)}</p><p>${escapeHtml(data.techSpecial3)}</p>
+          <div class="sub-title">08.3 Teknis Penampilan / Pengisi Acara</div>
+          <p>${escapeHtml(data.techPerf1)}</p><p>${escapeHtml(data.techPerf2)}</p><p>${escapeHtml(data.techPerf3)}</p>
+
+          <div class="sec-title">09. APPROVAL &amp; FINAL CREATIVE DIRECTION</div>
+          <table class="doc-table">
+            <thead><tr><th>Role</th><th>Name</th><th style="width:110px;">Sign</th><th style="width:90px;">Date</th></tr></thead>
+            <tbody>
+              ${data.approvals.map((a) => `<tr><td><strong>${escapeHtml(a.role)}</strong></td><td>${escapeHtml(a.name)}</td><td style="height:34px;"></td><td>${escapeHtml(a.date)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+          <table class="doc-table"><tr><td><strong>Final Creative Direction</strong><br/>${escapeHtml(data.finalCreativeDirection)}</td></tr></table>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <script>
+    window.addEventListener("load", function() {
+      var imgs = Array.prototype.slice.call(document.images || []);
+      Promise.all(imgs.map(function(img) {
+        if (img.complete) return Promise.resolve();
+        return new Promise(function(resolve) {
+          img.addEventListener("load", resolve);
+          img.addEventListener("error", resolve);
+        });
+      })).then(function() {
+        setTimeout(function() { window.print(); }, 200);
+      });
+    });
+  </script>
 </body>
 </html>`;
 
