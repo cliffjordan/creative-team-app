@@ -13,38 +13,7 @@ import { DollarSign, Edit2, ExternalLink, Eye, Lock, Plus, Trash2, Wallet } from
 
 const STORAGE_KEY = "CT_SECTION_BUDGETS";
 
-const INITIAL_BUDGETS: EventBudgetLedgerItem[] = [
-  {
-    id: "b-1",
-    event_id: INITIAL_EVENT.id,
-    section: "DEKORASI",
-    item_name: "Ornamen Bintang & Lampu LED Pohon Natal",
-    estimated_amount: 2500000,
-    actual_amount: 2400000,
-    notes: "Beli di Glodok, nota ada di Bendahara.",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "b-2",
-    event_id: INITIAL_EVENT.id,
-    section: "PERLENGKAPAN",
-    item_name: "Sewa Wireless Mic & Lighting Beam",
-    estimated_amount: 1800000,
-    actual_amount: 1800000,
-    notes: "SoundPro Rent invoice #1042",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "b-3",
-    event_id: INITIAL_EVENT.id,
-    section: "ACARA",
-    item_name: "Lilin Jemaat & Souvenir Kartu Natal",
-    estimated_amount: 600000,
-    actual_amount: 550000,
-    notes: "Pasar Baru",
-    created_at: new Date().toISOString(),
-  },
-];
+const INITIAL_BUDGETS: EventBudgetLedgerItem[] = [];
 
 interface FinanceViewProps {
   currentUser: User | null;

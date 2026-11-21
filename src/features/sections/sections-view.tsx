@@ -98,138 +98,15 @@ export function SectionsView({
     }
   }, [currentUser, activeEvent.id, roster]);
 
-  const [tools, setTools] = useState<SectionToolInventory[]>([
-    {
-      id: "tool-1",
-      event_id: INITIAL_EVENT.id,
-      tool_name: "Wireless Mic Shure GLXD4 (4 Unit)",
-      quantity: 4,
-      source: "RENTAL",
-      is_ready: true,
-      notes: "Sudah disewa dari vendor SoundPro, standby di meja soundman.",
-    },
-    {
-      id: "tool-2",
-      event_id: INITIAL_EVENT.id,
-      tool_name: "Lilin Induk & 500 Lilin Jemaat",
-      quantity: 501,
-      source: "PURCHASE",
-      is_ready: true,
-      notes: "Disimpan di kardus backstage pintu kanan.",
-    },
-    {
-      id: "tool-3",
-      event_id: INITIAL_EVENT.id,
-      tool_name: "Heavy Fog Smoke Machine 1500W",
-      quantity: 2,
-      source: "IN_HOUSE",
-      is_ready: false,
-      notes: "Liquid smoke belum diisi.",
-    },
-  ]);
+  const [tools, setTools] = useState<SectionToolInventory[]>([]);
 
-  const [budgets, setBudgets] = useState<EventBudgetLedgerItem[]>([
-    {
-      id: "b-1",
-      event_id: INITIAL_EVENT.id,
-      section: "DEKORASI",
-      item_name: "Ornamen Bintang & Lampu LED Pohon Natal",
-      estimated_amount: 2500000,
-      actual_amount: 2400000,
-      notes: "Beli di Glodok, nota ada di Bendahara.",
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: "b-2",
-      event_id: INITIAL_EVENT.id,
-      section: "PERLENGKAPAN",
-      item_name: "Sewa Wireless Mic & Lighting Beam",
-      estimated_amount: 1800000,
-      actual_amount: 1800000,
-      notes: "SoundPro Rent invoice #1042",
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: "b-3",
-      event_id: INITIAL_EVENT.id,
-      section: "ACARA",
-      item_name: "Lilin Jemaat & Souvenir Kartu Natal",
-      estimated_amount: 600000,
-      actual_amount: 550000,
-      notes: "Pasar Baru",
-      created_at: new Date().toISOString(),
-    },
-  ]);
+  const [budgets, setBudgets] = useState<EventBudgetLedgerItem[]>([]);
 
-  const [shotlists, setShotlists] = useState<SectionPddShotlist[]>([
-    {
-      id: "shot-1",
-      event_id: INITIAL_EVENT.id,
-      scene_title: "Ekspresi Wajah Jemaat Saat Candle Light",
-      shot_type: "PHOTO",
-      camera_angle: "Close-up bokeh lilin di tangan",
-      status: "PENDING",
-      drive_link: "https://drive.google.com/drive/folders/demo-pdd",
-    },
-    {
-      id: "shot-2",
-      event_id: INITIAL_EVENT.id,
-      scene_title: "Highlight Teatrikal & Penampilan Kelas Anak",
-      shot_type: "VIDEO",
-      camera_angle: "Gimbal tracking shot pintu masuk ke panggung",
-      status: "PENDING",
-      drive_link: "https://drive.google.com/drive/folders/demo-pdd",
-    },
-  ]);
+  const [shotlists, setShotlists] = useState<SectionPddShotlist[]>([]);
 
-  const [guides, setGuides] = useState<EventTechnicalGuide[]>([
-    {
-      id: "g-1",
-      event_id: INITIAL_EVENT.id,
-      category: "CANDLE_LIGHT",
-      title: "Alur Candle Light Service (Malam Kudus)",
-      instructions_markdown:
-        "1. Begitu intro lagu 'Malam Kudus', lampu gedung fade-out perlahan (10 detik).\n2. Pembicara mengambil api dari lilin induk di mimbar.\n3. 10 Usher maju mengambil api dari pembicara, lalu menyebar ke baris lorong.\n4. **PENTING**: Lilin yang diam diarahkan menerima api (jangan miringkan lilin yang menyala agar lilin tidak menetes ke tangan jemaat).",
-      layout_image_url: "https://images.unsplash.com/photo-1512474932049-78ac69eed10c?w=600",
-      target_sections: ["ACARA", "PERLENGKAPAN", "ALL"],
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: "g-2",
-      event_id: INITIAL_EVENT.id,
-      category: "CLASS_PERFORMANCE_GATE",
-      title: "Alur Gate In-Out Penampilan Kelas Anak",
-      instructions_markdown:
-        "1. Guru pendamping mengumpulkan anak di holding room 10 menit sebelum giliran.\n2. Masuk lewat Gate Kiri (pintu sayap kiri panggung).\n3. Selesai bernyanyi langsung keluar lewat Gate Kanan (sayap kanan panggung) untuk menghindari tabrakan dengan tim berikutnya.",
-      target_sections: ["ACARA", "ALL"],
-      created_at: new Date().toISOString(),
-    },
-  ]);
+  const [guides, setGuides] = useState<EventTechnicalGuide[]>([]);
 
-  const [decorItems, setDecorItems] = useState<SectionDecorItem[]>([
-    {
-      id: "decor-1",
-      event_id: INITIAL_EVENT.id,
-      item_name: "Pohon Natal Utama 4m + Bintang Akrilik",
-      estimated_cost: 2500000,
-      actual_cost: 2400000,
-      installation_status: "INSTALLED",
-      notes: "Sisi Kanan Mimbar - Sudah terpasang dengan lampu warm white.",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "decor-2",
-      event_id: INITIAL_EVENT.id,
-      item_name: "Backdrop Photobooth Winter Warmth",
-      estimated_cost: 1200000,
-      actual_cost: 1150000,
-      installation_status: "IN_PROGRESS",
-      notes: "Foyer Utama - Menunggu pemasangan neon sign.",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ]);
+  const [decorItems, setDecorItems] = useState<SectionDecorItem[]>([]);
 
   const [pddReferences, setPddReferences] = useState<PddDriveReference[]>(INITIAL_PDD_REFERENCES);
   const [pddPhaseFilter, setPddPhaseFilter] = useState<"ALL" | TaskPhase>("ALL");

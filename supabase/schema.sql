@@ -1711,6 +1711,9 @@ CREATE TABLE IF NOT EXISTS pdd_references (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE event_roster
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_event_active_event_leader
   ON event_roster (event_id)
   WHERE role_in_event = 'EVENT_LEADER' AND is_active = TRUE;

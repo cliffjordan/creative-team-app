@@ -28,28 +28,7 @@ const MEETING_TYPE_LABELS: Record<MeetingType, string> = {
 
 const STORAGE_KEY = "CT_MEETING_NOTES";
 
-const INITIAL_NOTES: EventMeetingNote[] = [
-  {
-    id: "mn-1",
-    event_id: INITIAL_EVENT.id,
-    meeting_type: "PRE_EVENT_COORDINATION",
-    meeting_date: "2026-12-05",
-    notes_content:
-      "1. Tema Natal disepakati: Winter Warmth & Golden Radiance.\n2. Seksi Acara menyusun rundown final paling lambat H-7.\n3. Seksi Perlengkapan konfirmasi sewa 4 wireless mic ke SoundPro.",
-    recorded_by: "00000000-0000-4000-8000-000000000003",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "mn-2",
-    event_id: INITIAL_EVENT.id,
-    meeting_type: "TECHNICAL_MEETING",
-    meeting_date: "2026-12-18",
-    notes_content:
-      "1. Open gate pukul 17:00 WIB, usher standby 30 menit sebelumnya.\n2. Candle light service: lampu fade-out 10 detik saat intro Malam Kudus.\n3. Gate masuk kelas anak dari sayap kiri, keluar sayap kanan.",
-    recorded_by: "00000000-0000-4000-8000-000000000003",
-    created_at: new Date().toISOString(),
-  },
-];
+const INITIAL_NOTES: EventMeetingNote[] = [];
 
 interface MeetingNotesViewProps {
   users: User[];

@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
+import { CalendarDays, Plus } from "lucide-react";
 import {
   User,
   Event,
@@ -11,21 +13,21 @@ import {
   EventRosterMember,
 } from "@/types/domain";
 import {
-  INITIAL_USERS,
   INITIAL_EVENT,
   INITIAL_EVENTS,
   INITIAL_ROSTER,
   INITIAL_RUNDOWN_ITEMS,
   INITIAL_LIVE_LOGS,
   canUserAccessEvent,
+  isCreativeLeader,
 } from "@/lib/mock-db";
+import { getEventsAction } from "@/features/events/actions/event-actions";
 import { Header } from "@/components/layout/header";
 import { InactivityTimeout } from "@/components/layout/inactivity-timeout";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { BottomNav, TabType } from "@/components/layout/bottom-nav";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { HomeDashboardView } from "@/features/dashboard/home-dashboard-view";
-import { ImmersiveLandingView } from "@/features/landing/immersive-landing-view";
 import { RealtimeProvider } from "@/providers/realtime-provider";
 import { useAuth } from "@/providers/auth-provider";
 import { publishSyncMessage, subscribeSyncMessages } from "@/lib/sync/realtime-bus";
@@ -88,18 +90,29 @@ const EvaluationView = dynamic(
   { ssr: false, loading: () => <TabSkeleton /> }
 );
 
+const ImmersiveLandingView = dynamic(
+  () => import("@/features/landing/immersive-landing-view").then((m) => m.ImmersiveLandingView),
+  { ssr: false }
+);
+
 const PinLoginModal = dynamic(
   () => import("@/features/auth/pin-login-modal").then((m) => m.PinLoginModal),
   { ssr: false, loading: () => null }
 );
 
 export default function Home() {
-  const { currentUser: authUser, isLoading: isAuthLoading, setCurrentUserDirect, logout: authLogout } = useAuth();
+  const {
+    currentUser: authUser,
+    users: authUsers,
+    isLoading: isAuthLoading,
+    setCurrentUserDirect,
+    logout: authLogout,
+  } = useAuth();
   // Active Tab defaults to Home Dashboard
   const [activeTab, setActiveTab] = useState<TabType>("home");
 
   // Core App State (No auto-login default user; synchronized with AuthProvider)
-  const [users] = useState<User[]>(INITIAL_USERS);
+  const users = authUsers;
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [events, setEvents] = useState<Event[]>(INITIAL_EVENTS);
   const [roster, setRoster] = useState<EventRosterMember[]>(INITIAL_ROSTER);
@@ -107,87 +120,7 @@ export default function Home() {
   const [items, setItems] = useState<RundownItem[]>(INITIAL_RUNDOWN_ITEMS);
   const [logs, setLogs] = useState<LiveLog[]>(INITIAL_LIVE_LOGS);
 
-  // Timeline Tasks (UUIDs aligned with INITIAL_USERS)
-  const [tasks, setTasks] = useState<TimelineTask[]>([
-    {
-      id: "task-0",
-      event_id: INITIAL_EVENT.id,
-      section: "INTI",
-      phase: "PRE_EVENT",
-      title: "Review Final Rundown & Koordinasi Seluruh Section Leader",
-      description: "Pastikan seluruh rundown, kebutuhan cue, dan PIC lapangan siap H-1.",
-      assigned_to: "00000000-0000-4000-8000-000000000001",
-      due_date: "2026-12-24",
-      status: "IN_PROGRESS",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "task-1",
-      event_id: INITIAL_EVENT.id,
-      section: "ACARA",
-      phase: "PRE_EVENT",
-      title: "Finalisasi Rundown & Briefing Guru Pendamping Kelas",
-      description: "Menjelaskan alur gate in-out dan posisi duduk anak-anak saat ibadah.",
-      assigned_to: "00000000-0000-4000-8000-000000000005",
-      due_date: "2026-12-22",
-      status: "IN_PROGRESS",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "task-2",
-      event_id: INITIAL_EVENT.id,
-      section: "DEKORASI",
-      phase: "PRE_EVENT",
-      title: "Pemasangan Pohon Natal 4 Meter & Fairy Lights",
-      description: "Pemasangan dilakukan H-2 bersama tim vendor scaffolding.",
-      assigned_to: "00000000-0000-4000-8000-000000000006",
-      due_date: "2026-12-23",
-      status: "TODO",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "task-3",
-      event_id: INITIAL_EVENT.id,
-      section: "PERLENGKAPAN",
-      phase: "PRE_EVENT",
-      title: "Uji Coba Frekuensi Wireless Mic & Smoke Machine",
-      description: "Memastikan baterai baru terpasang dan liquid smoke tidak menyumbat.",
-      assigned_to: "00000000-0000-4000-8000-000000000007",
-      due_date: "2026-12-24",
-      status: "DONE",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "task-4",
-      event_id: INITIAL_EVENT.id,
-      section: "PDD",
-      phase: "PRE_EVENT",
-      title: "Rendering Final Video Countdown Opening Natal 4K",
-      description: "Video 10 menit dengan audio mixing surround sound.",
-      assigned_to: "00000000-0000-4000-8000-000000000008",
-      due_date: "2026-12-23",
-      status: "DONE",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: "task-5",
-      event_id: INITIAL_EVENT.id,
-      section: "INTI",
-      phase: "EVENT_DAY",
-      title: "Cek Kesiapan Briefing Kru 90 Menit Sebelum Open Gate",
-      description: "Doa bersama tim kreatif dan pembagian HT ke seluruh leader divisi.",
-      assigned_to: "00000000-0000-4000-8000-000000000001",
-      due_date: "2026-12-25",
-      status: "TODO",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ]);
+  const [tasks, setTasks] = useState<TimelineTask[]>([]);
 
   // Login Modal
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -248,6 +181,15 @@ export default function Home() {
     return () => {
       unsubscribe();
     };
+    // Sync real events from Supabase/server action
+    getEventsAction()
+      .then((res) => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          setEvents(res.data);
+          setEvent((prev) => (prev.id ? prev : res.data![0]));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleUpdateEvent = (updated: Partial<Event>) => {
@@ -448,9 +390,47 @@ export default function Home() {
 
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto w-full pb-24 lg:pb-10">
           {accessibleEvents.length === 0 ? (
-            <div className="p-8 rounded-3xl bg-white border border-slate-200 shadow-sm text-center space-y-2 mt-8 max-w-md mx-auto">
-              <h2 className="text-base font-bold text-slate-900">Akses Event Terbatas</h2>
-              <p className="text-xs text-slate-500">Anda belum ditugaskan pada event mana pun.</p>
+            <div className="p-8 rounded-3xl bg-white border border-slate-200 shadow-sm text-center space-y-4 mt-8 max-w-md mx-auto animate-tab-enter">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                <CalendarDays className="w-6 h-6" />
+              </div>
+              {isCreativeLeader(currentUser) ? (
+                <>
+                  <div className="space-y-1.5">
+                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                      Belum Ada Event Terdaftar
+                    </h2>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Database event masih kosong. Buat event pertama Anda untuk mulai menyusun rundown,
+                      roster panitia, anggaran, dan jadwal pelayanan.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+                    <Link
+                      href="/events/new"
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Buat Event Pertama</span>
+                    </Link>
+                    <Link
+                      href="/events"
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition"
+                    >
+                      <span>Buka Command Center</span>
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Belum Ada Event Aktif
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Saat ini belum ada event yang dijadwalkan atau ditugaskan kepada Anda. Silakan hubungi Creative Leader.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div key={`${activeTab}-${event.id}`} className="animate-tab-enter">

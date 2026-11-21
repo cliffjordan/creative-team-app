@@ -33,28 +33,7 @@ interface SlideItem {
   isNext?: boolean;
 }
 
-const DEFAULT_GUIDES: EventTechnicalGuide[] = [
-  {
-    id: "g-1",
-    event_id: INITIAL_EVENT.id,
-    category: "CANDLE_LIGHT",
-    title: "Alur Candle Light Service (Malam Kudus)",
-    instructions_markdown:
-      "1. Begitu intro lagu 'Malam Kudus', lampu gedung fade-out perlahan (10 detik).\n2. Pembicara mengambil api dari lilin induk di mimbar.\n3. 10 Usher maju mengambil api dari pembicara, lalu menyebar ke baris lorong.\n4. PENTING: Lilin yang diam diarahkan menerima api.",
-    target_sections: ["ACARA", "PERLENGKAPAN", "ALL"],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "g-2",
-    event_id: INITIAL_EVENT.id,
-    category: "CLASS_PERFORMANCE_GATE",
-    title: "Alur Gate In-Out Penampilan Kelas Anak",
-    instructions_markdown:
-      "1. Guru pendamping mengumpulkan anak di holding room 10 menit sebelum giliran.\n2. Masuk lewat Gate Kiri (pintu sayap kiri panggung).\n3. Selesai bernyanyi langsung keluar lewat Gate Kanan.",
-    target_sections: ["ACARA", "ALL"],
-    created_at: new Date().toISOString(),
-  },
-];
+const DEFAULT_GUIDES: EventTechnicalGuide[] = [];
 
 export function McCueCardDeck() {
   const { currentUser, isLoading } = useAuth();

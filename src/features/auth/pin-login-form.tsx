@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import { User } from "@/types/domain";
 import { Badge } from "@/components/ui/badge";
-import { Delete, UserCheck, AlertTriangle, Search } from "lucide-react";
+import { Delete, UserCheck, AlertTriangle, Search, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PinLoginFormProps {
@@ -58,6 +59,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
       return;
     }
 
+    let apiErrorMsg = "";
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -69,7 +71,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
         setPin("");
         setErrorMsg("");
         setFailedAttempts(0);
-        onSuccessLogin(selectedUser);
+        onSuccessLogin(data.user || selectedUser);
         return;
       }
       if (data.is_locked) {
@@ -78,15 +80,9 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
         setPin("");
         return;
       }
+      apiErrorMsg = data.error || "";
     } catch {
-      // Fallback to local verification if API unreachable
-      if (inputPin === "1234") {
-        setPin("");
-        setErrorMsg("");
-        setFailedAttempts(0);
-        onSuccessLogin(selectedUser);
-        return;
-      }
+      apiErrorMsg = "Gagal terhubung ke server.";
     }
 
     const nextFailed = failedAttempts + 1;
@@ -96,7 +92,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
       setIsLocked(true);
       setErrorMsg("Akun terkunci 15 menit karena 5x salah PIN. Hubungi Creative Leader / Superadmin.");
     } else {
-      setErrorMsg(`PIN salah! Percobaan ${nextFailed}/5. (Default dev PIN: 1234)`);
+      setErrorMsg(apiErrorMsg || `PIN salah! Percobaan ${nextFailed}/5.`);
     }
   };
 
@@ -109,55 +105,90 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
   if (!selectedUser) {
     return (
       <div className="space-y-3.5">
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama anggota atau divisi..."
-            className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 transition"
-          />
-        </div>
+        {users.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-6 text-center space-y-3">
+            <div className="mx-auto w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Belum Ada Akun Terdaftar
+              </h3>
+              <p className="text-xs text-slate-500">
+                Database belum memiliki pengguna. Silakan daftarkan akun pertama Anda terlebih dahulu.
+              </p>
+            </div>
+            <Link
+              href="/register"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Daftar Akun Pertama</span>
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama anggota atau divisi..."
+                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 transition"
+              />
+            </div>
 
-        <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
-          {filteredUsers.map((user) => {
-            const initials = user.full_name
-              .split(" ")
-              .slice(0, 2)
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase();
-            return (
-              <button
-                key={user.id}
-                type="button"
-                onClick={() => setSelectedUserId(user.id)}
-                className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white hover:bg-indigo-50/70 border border-slate-200 hover:border-indigo-300 transition text-left group"
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              {filteredUsers.map((user) => {
+                const initials = user.full_name
+                  .split(" ")
+                  .slice(0, 2)
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase();
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => setSelectedUserId(user.id)}
+                    className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white hover:bg-indigo-50/70 border border-slate-200 hover:border-indigo-300 transition text-left group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition">
+                        {initials}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-900 truncate">{user.full_name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{user.base_role.replace("_", " ")}</div>
+                      </div>
+                    </div>
+                    {user.is_superadmin && (
+                      <Badge variant="purple" className="text-[10px] shrink-0">
+                        Superadmin
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })}
+              {filteredUsers.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-6">
+                  Nama anggota tidak ditemukan.
+                </p>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 text-center">
+              <Link
+                href="/register"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline inline-flex items-center gap-1"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition">
-                    {initials}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-slate-900 truncate">{user.full_name}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{user.base_role.replace("_", " ")}</div>
-                  </div>
-                </div>
-                {user.is_superadmin && (
-                  <Badge variant="purple" className="text-[10px] shrink-0">
-                    Superadmin
-                  </Badge>
-                )}
-              </button>
-            );
-          })}
-          {filteredUsers.length === 0 && (
-            <p className="text-xs text-slate-400 text-center py-6">
-              Nama anggota tidak ditemukan.
-            </p>
-          )}
-        </div>
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Belum punya akun? Daftar sekarang</span>
+              </Link>
+            </div>
+          </>
+        )}
       </div>
     );
   }

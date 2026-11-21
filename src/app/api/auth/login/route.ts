@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PinLoginSchema } from "@/lib/validators/schemas";
 import { createServerClient } from "@/lib/supabase/server";
 import { INITIAL_USERS } from "@/lib/mock-db";
+import { verifyPinHash } from "@/lib/auth/pin-hash";
 import {
   signSessionToken,
   getSessionCookieOptions,
@@ -35,52 +36,124 @@ export async function POST(request: Request) {
 
     if (isSupabaseConfigured()) {
       const supabase = createServerClient();
-      const { data, error } = await supabase.rpc("verify_user_pin", {
-        p_user_id: user_id,
-        p_pin: pin,
-      });
+      const { data: userRow, error: fetchError } = await supabase
+        .from("users")
+        .select(
+          "id, full_name, email, phone, pin_hash, base_role, is_superadmin, avatar_url, failed_pin_attempts, locked_until, created_at"
+        )
+        .eq("id", user_id)
+        .maybeSingle();
 
-      if (error) {
+      if (fetchError) {
         return NextResponse.json(
-          { success: false, error: "Gagal memverifikasi PIN" },
+          { success: false, error: "Gagal mengambil data pengguna" },
           { status: 500 }
         );
       }
 
-      const result = Array.isArray(data) ? data[0] : data;
-      if (!result || !result.success) {
-        const status = result?.is_locked ? 423 : 401;
+      if (!userRow) {
         return NextResponse.json(
-          {
-            success: false,
-            error: result?.message || "PIN salah",
-            is_locked: Boolean(result?.is_locked),
-          },
-          { status }
+          { success: false, error: "Akun tidak ditemukan" },
+          { status: 404 }
         );
       }
 
+      if (userRow.locked_until && new Date(userRow.locked_until).getTime() > Date.now()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Akun terkunci sementara 15 menit karena 5x salah PIN.",
+            is_locked: true,
+          },
+          { status: 423 }
+        );
+      }
+
+      let isPinValid = false;
+
+      if (userRow.pin_hash?.startsWith("scrypt$")) {
+        isPinValid = verifyPinHash(pin, userRow.pin_hash);
+      } else {
+        const { data: rpcResult, error: rpcError } = await supabase.rpc("verify_user_pin", {
+          p_user_id: user_id,
+          p_pin: pin,
+        });
+        if (!rpcError) {
+          if (typeof rpcResult === "boolean") {
+            isPinValid = rpcResult;
+          } else if (Array.isArray(rpcResult)) {
+            isPinValid = Boolean(rpcResult[0]?.success);
+          } else if (rpcResult && typeof rpcResult === "object") {
+            isPinValid = Boolean((rpcResult as { success?: boolean }).success);
+          }
+        }
+      }
+
+      if (!isPinValid) {
+        const nextAttempts = (userRow.failed_pin_attempts || 0) + 1;
+        const shouldLock = nextAttempts >= 5;
+        const lockedUntil = shouldLock
+          ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          : null;
+
+        await supabase
+          .from("users")
+          .update({
+            failed_pin_attempts: nextAttempts,
+            locked_until: lockedUntil,
+          })
+          .eq("id", user_id);
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: shouldLock
+              ? "Akun terkunci 15 menit karena 5x salah PIN."
+              : `PIN salah! Percobaan ${nextAttempts}/5.`,
+            is_locked: shouldLock,
+          },
+          { status: shouldLock ? 423 : 401 }
+        );
+      }
+
+      if ((userRow.failed_pin_attempts || 0) > 0 || userRow.locked_until) {
+        await supabase
+          .from("users")
+          .update({
+            failed_pin_attempts: 0,
+            locked_until: null,
+          })
+          .eq("id", user_id);
+      }
+
+      const safeUser = {
+        id: userRow.id,
+        full_name: userRow.full_name,
+        email: userRow.email,
+        phone: userRow.phone,
+        base_role: userRow.base_role,
+        is_superadmin: Boolean(userRow.is_superadmin),
+        avatar_url: userRow.avatar_url,
+        failed_pin_attempts: 0,
+        locked_until: null,
+        created_at: userRow.created_at,
+      };
+
       const token = await signSessionToken({
-        userId: result.user_id,
-        fullName: result.full_name,
-        baseRole: result.base_role,
-        isSuperadmin: Boolean(result.is_superadmin),
+        userId: safeUser.id,
+        fullName: safeUser.full_name,
+        baseRole: safeUser.base_role,
+        isSuperadmin: safeUser.is_superadmin,
       });
 
       const response = NextResponse.json({
         success: true,
-        user: {
-          id: result.user_id,
-          full_name: result.full_name,
-          base_role: result.base_role,
-          is_superadmin: Boolean(result.is_superadmin),
-        },
+        user: safeUser,
       });
       response.cookies.set(getSessionCookieOptions().name, token, getSessionCookieOptions());
       return response;
     }
 
-    // Demo mode fallback (when Supabase is not configured)
     const demoUser = INITIAL_USERS.find((u) => u.id === user_id);
     if (!demoUser) {
       return NextResponse.json(
@@ -91,7 +164,7 @@ export async function POST(request: Request) {
 
     if (pin !== "1234") {
       return NextResponse.json(
-        { success: false, error: "PIN salah (Demo PIN: 1234)" },
+        { success: false, error: "PIN salah" },
         { status: 401 }
       );
     }
