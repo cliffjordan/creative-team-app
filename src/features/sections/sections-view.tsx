@@ -144,9 +144,18 @@ export function SectionsView({
 
   const toggleToolReady = (id: string) => {
     if (!canEdit) return;
+    const target = tools.find((t) => t.id === id);
+    const nextReady = target ? !target.is_ready : true;
     setTools((prev) =>
       prev.map((t) => (t.id === id ? { ...t, is_ready: !t.is_ready } : t))
     );
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "tools", id, is_ready: nextReady }),
+      }).catch(() => {});
+    }
   };
 
   useEffect(() => {
@@ -156,7 +165,25 @@ export function SectionsView({
     setGuides((prev) => loadFromStorage("CT_SECTION_GUIDES", prev));
     setDecorItems((prev) => loadFromStorage("CT_SECTION_DECOR", prev));
     setPddReferences((prev) => loadFromStorage("CT_PDD_REFERENCES", prev));
-  }, []);
+
+    if (!activeEvent.id) return;
+    let active = true;
+    fetch(`/api/events/${activeEvent.id}/sections`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data?.success) return;
+        if (Array.isArray(data.tools) && data.tools.length > 0) setTools(data.tools);
+        if (Array.isArray(data.decor) && data.decor.length > 0) setDecorItems(data.decor);
+        if (Array.isArray(data.shotlist) && data.shotlist.length > 0) setShotlists(data.shotlist);
+        if (Array.isArray(data.references) && data.references.length > 0) setPddReferences(data.references);
+        if (Array.isArray(data.guides) && data.guides.length > 0) setGuides(data.guides);
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [activeEvent.id]);
 
   useEffect(() => {
     try {
@@ -195,7 +222,7 @@ export function SectionsView({
     } catch {}
   }, [pddReferences]);
 
-  const handleAddDriveReference = () => {
+  const handleAddDriveReference = async () => {
     const safeUrl = sanitizeHttpUrl(driveRefUrl);
     if (!canEdit || !driveRefTitle.trim() || !safeUrl) return;
     const newRef: PddDriveReference = {
@@ -210,6 +237,25 @@ export function SectionsView({
     setDriveRefTitle("");
     setDriveRefUrl("");
     setIsDriveRefModalOpen(false);
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "references",
+          phase: newRef.phase,
+          title: newRef.title,
+          url: newRef.url,
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.item?.id) {
+            setPddReferences((prev) => prev.map((it) => (it.id === newRef.id ? res.item : it)));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleAddCueCard = () => {
@@ -229,6 +275,27 @@ export function SectionsView({
     setCueInstructions("");
     setCueImageUrl("");
     setIsCueModalOpen(false);
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "guides",
+          category: newGuide.category,
+          title: newGuide.title,
+          instructions_markdown: newGuide.instructions_markdown,
+          layout_image_url: newGuide.layout_image_url,
+          target_sections: newGuide.target_sections,
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.item?.id) {
+            setGuides((prev) => prev.map((it) => (it.id === newGuide.id ? res.item : it)));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleCycleDecorStatus = (id: string) => {
@@ -239,6 +306,8 @@ export function SectionsView({
       INSTALLED: "READY",
       READY: "PLANNING",
     };
+    const currentItem = decorItems.find((d) => d.id === id);
+    const nextStatus = currentItem ? nextMap[currentItem.installation_status] : "IN_PROGRESS";
     setDecorItems((prev) =>
       prev.map((d) =>
         d.id === id
@@ -246,6 +315,13 @@ export function SectionsView({
           : d
       )
     );
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "decor", id, installation_status: nextStatus }),
+      }).catch(() => {});
+    }
   };
 
   const handleAddBudget = () => {
@@ -286,6 +362,27 @@ export function SectionsView({
     setToolQty(1);
     setToolNotes("");
     setIsToolModalOpen(false);
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "tools",
+          tool_name: newTool.tool_name,
+          quantity: newTool.quantity,
+          source: newTool.source,
+          is_ready: false,
+          notes: newTool.notes,
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.item?.id) {
+            setTools((prev) => prev.map((it) => (it.id === newTool.id ? res.item : it)));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleAddShotlist = () => {
@@ -303,6 +400,27 @@ export function SectionsView({
     setShotTitle("");
     setShotAngle("");
     setIsShotModalOpen(false);
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "shotlist",
+          scene_title: newShot.scene_title,
+          shot_type: newShot.shot_type,
+          camera_angle: newShot.camera_angle,
+          status: "PENDING",
+          drive_link: newShot.drive_link,
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.item?.id) {
+            setShotlists((prev) => prev.map((it) => (it.id === newShot.id ? res.item : it)));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleCycleShotStatus = (id: string) => {
@@ -312,9 +430,18 @@ export function SectionsView({
       TAKEN: "EDITED",
       EDITED: "PENDING",
     };
+    const curr = shotlists.find((s) => s.id === id);
+    const nextStatus = curr ? nextMap[curr.status] : "TAKEN";
     setShotlists((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: nextMap[s.status] } : s))
     );
+    if (activeEvent.id) {
+      fetch(`/api/events/${activeEvent.id}/sections`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "shotlist", id, status: nextStatus }),
+      }).catch(() => {});
+    }
   };
 
   const eventGuides = guides.filter((g) => (g.event_id || INITIAL_EVENT.id) === activeEvent.id);

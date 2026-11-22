@@ -94,6 +94,34 @@ export async function PATCH(
     }
 
     const supabase = createServerClient();
+
+    // Anti Last-Leader Lockout protection
+    if (p.base_role !== undefined && p.base_role !== "CREATIVE_LEADER") {
+      const { data: currentTarget } = await supabase
+        .from("users")
+        .select("id, base_role")
+        .eq("id", targetUserId)
+        .maybeSingle();
+
+      if (currentTarget?.base_role === "CREATIVE_LEADER") {
+        const { count: leaderCount } = await supabase
+          .from("users")
+          .select("id", { count: "exact", head: true })
+          .eq("base_role", "CREATIVE_LEADER");
+
+        if ((leaderCount ?? 0) <= 1) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                "Tidak dapat menurunkan jabatan Creative Leader terakhir. Tetapkan Creative Leader lain terlebih dahulu.",
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from("users")
       .update(updatePayload)

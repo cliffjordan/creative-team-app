@@ -161,8 +161,9 @@ export function LiveStageView({
   const [insertSection, setInsertSection] = useState<SectionType>("ACARA");
   const [insertNotes, setInsertNotes] = useState("");
 
-  // Leader & permission check
-  const isLeaderOrCo = isUserEventLeader(currentUser, event, roster || []);
+  // Leader & permission check (lock controls when event is COMPLETED)
+  const isCompletedEvent = event.status === "COMPLETED";
+  const isLeaderOrCo = !isCompletedEvent && isUserEventLeader(currentUser, event, roster || []);
   const activeLeaderMember = (roster || []).find(
     (r) => r.event_id === event.id && r.role_in_event === "EVENT_LEADER"
   );
@@ -640,6 +641,14 @@ export function LiveStageView({
 
   return (
     <div className="space-y-5 pb-28 lg:pb-12 animate-fade-in">
+      {isCompletedEvent && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-xs font-semibold text-emerald-900 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>
+            <strong>Event Telah Selesai (COMPLETED)</strong> — Konsol panggung berada dalam mode arsip (*read-only*) untuk menjaga integritas catatan acara.
+          </span>
+        </div>
+      )}
       {/* Top Status Strip */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">

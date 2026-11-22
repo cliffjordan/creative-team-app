@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
+import { getTodayIsoWIB } from "@/lib/utils";
 import { SectionType } from "@/types/domain";
 
 export async function POST(
@@ -215,10 +216,10 @@ export async function POST(
       );
     }
 
-    // Resolve due_date (H-7 of event_date or today if H-7 is in the past)
+    // Resolve due_date (H-7 of event_date or today WIB if H-7 is in the past)
     const eventTimeMs = new Date(`${eventRow.event_date}T00:00:00Z`).getTime();
     const h7Date = new Date(eventTimeMs - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = getTodayIsoWIB();
     const dueDate = h7Date < todayIso ? eventRow.event_date : h7Date;
 
     const findSectionLeader = (targetSection: SectionType): string | null => {

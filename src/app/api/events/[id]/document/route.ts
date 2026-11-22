@@ -98,11 +98,38 @@ export async function PATCH(
     }
 
     const supabase = createServerClient();
-    const { data: existing } = await supabase
-      .from("event_documents")
-      .select("id")
-      .eq("event_id", eventId)
-      .maybeSingle();
+
+    const [{ data: actor }, { data: existing }] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, base_role, default_section, is_role_assigned, is_superadmin")
+        .eq("id", session.userId)
+        .maybeSingle(),
+      supabase
+        .from("event_documents")
+        .select("id, document_data")
+        .eq("event_id", eventId)
+        .maybeSingle(),
+    ]);
+
+    if (!actor) {
+      return NextResponse.json({ success: false, error: "Akun tidak ditemukan." }, { status: 401 });
+    }
+
+    const isUnassigned =
+      !actor.is_superadmin &&
+      actor.base_role === "MEMBER" &&
+      (!actor.is_role_assigned || (!actor.is_role_assigned && !actor.default_section));
+
+    if (isUnassigned) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Member umum belum di-assign role/divisi tidak berhak mengubah dokumen event.",
+        },
+        { status: 403 }
+      );
+    }
 
     if (!existing) {
       return NextResponse.json(
@@ -111,10 +138,16 @@ export async function PATCH(
       );
     }
 
+    const existingData =
+      existing.document_data && typeof existing.document_data === "object"
+        ? (existing.document_data as Record<string, unknown>)
+        : {};
+    const mergedData = { ...existingData, ...parsed.data.document_data };
+
     const { data, error } = await supabase
       .from("event_documents")
       .update({
-        document_data: parsed.data.document_data,
+        document_data: mergedData,
         ...(parsed.data.org_chart_url !== undefined
           ? { org_chart_url: parsed.data.org_chart_url || null }
           : {}),

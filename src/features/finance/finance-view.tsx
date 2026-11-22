@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { formatCurrencyIDR, sanitizeHttpUrl } from "@/lib/utils";
+import { formatCurrencyIDR, getTodayIsoWIB, sanitizeHttpUrl } from "@/lib/utils";
 import {
   Calendar,
   DollarSign,
@@ -95,7 +95,7 @@ export function FinanceView({ currentUser, activeEvent = INITIAL_EVENT }: Financ
   const [itemSection, setItemSection] = useState<SectionType>("DEKORASI");
   const [budgetCategory, setBudgetCategory] = useState("Dekorasi");
   const [itemName, setItemName] = useState("");
-  const [requiredDate, setRequiredDate] = useState(() => activeEvent.event_date || new Date().toISOString().slice(0, 10));
+  const [requiredDate, setRequiredDate] = useState(() => activeEvent.event_date || getTodayIsoWIB());
   const [quantity, setQuantity] = useState("1");
   const [uom, setUom] = useState("Set");
   const [unitPrice, setUnitPrice] = useState("");
@@ -187,7 +187,7 @@ export function FinanceView({ currentUser, activeEvent = INITIAL_EVENT }: Financ
     setItemSection("DEKORASI");
     setBudgetCategory("Dekorasi");
     setItemName("");
-    setRequiredDate(activeEvent.event_date || new Date().toISOString().slice(0, 10));
+    setRequiredDate(activeEvent.event_date || getTodayIsoWIB());
     setQuantity("1");
     setUom("Set");
     setUnitPrice("");

@@ -200,6 +200,57 @@ export default function Home() {
     };
   }, []);
 
+  // Hydrate event Tasks, Rundown & Live Logs directly from Supabase when active event changes
+  useEffect(() => {
+    if (!event.id || !currentUser) return;
+    let active = true;
+
+    Promise.all([
+      fetch(`/api/events/${event.id}/tasks`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/events/${event.id}/rundown`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/events/${event.id}/live`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([tasksRes, rundownRes, liveRes]) => {
+        if (!active) return;
+        if (tasksRes?.success && Array.isArray(tasksRes.tasks)) {
+          setTasks((prev) => {
+            const otherTasks = prev.filter((t) => t.event_id !== event.id);
+            const merged = [...(tasksRes.tasks as TimelineTask[]), ...otherTasks];
+            try {
+              localStorage.setItem("CT_TASKS", JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+        if (rundownRes?.success && Array.isArray(rundownRes.items)) {
+          setItems(rundownRes.items as RundownItem[]);
+          try {
+            localStorage.setItem("CT_ITEMS", JSON.stringify(rundownRes.items));
+          } catch {}
+        }
+        if (liveRes?.success) {
+          if (liveRes.event) {
+            setEvent((prev) => (prev.id === event.id ? { ...prev, ...liveRes.event } : prev));
+          }
+          if (Array.isArray(liveRes.logs)) {
+            setLogs((prev) => {
+              const otherLogs = prev.filter((l) => l.event_id !== event.id);
+              const merged = [...(liveRes.logs as LiveLog[]), ...otherLogs];
+              try {
+                localStorage.setItem("CT_LOGS", JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [event.id, currentUser?.id]);
+
   const handleUpdateEvent = (updated: Partial<Event>) => {
     setEvent((prev) => {
       const next = { ...prev, ...updated, updated_at: new Date().toISOString() };
@@ -215,6 +266,13 @@ export default function Home() {
         publishSyncMessage("CT_EVENTS", nextEvents);
         return nextEvents;
       });
+      if (next.id) {
+        fetch(`/api/events/${next.id}/live`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "event", ...updated }),
+        }).catch(() => {});
+      }
       return next;
     });
   };
@@ -225,6 +283,13 @@ export default function Home() {
       localStorage.setItem("CT_ITEMS", JSON.stringify(newItems));
     } catch {}
     publishSyncMessage("CT_ITEMS", newItems);
+    if (event.id) {
+      fetch(`/api/events/${event.id}/rundown`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: newItems }),
+      }).catch(() => {});
+    }
   };
 
   const handleAddLog = (logData: Omit<LiveLog, "id" | "created_at">): LiveLog => {
@@ -241,6 +306,13 @@ export default function Home() {
       publishSyncMessage("CT_LOGS", nextLogs);
       return nextLogs;
     });
+    if (event.id) {
+      fetch(`/api/events/${event.id}/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newLog),
+      }).catch(() => {});
+    }
     return newLog;
   };
 
@@ -253,6 +325,11 @@ export default function Home() {
       publishSyncMessage("CT_LOGS", nextLogs);
       return nextLogs;
     });
+    if (event.id) {
+      fetch(`/api/events/${event.id}/live?logId=${encodeURIComponent(logId)}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
   };
 
   const handleUpdateLog = (logId: string, updated: Partial<LiveLog>) => {
@@ -264,6 +341,13 @@ export default function Home() {
       publishSyncMessage("CT_LOGS", nextLogs);
       return nextLogs;
     });
+    if (event.id) {
+      fetch(`/api/events/${event.id}/live`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "log", logId, ...updated }),
+      }).catch(() => {});
+    }
   };
 
   const handleUpdateTask = (taskId: string, updated: Partial<TimelineTask>) => {
@@ -277,6 +361,13 @@ export default function Home() {
       publishSyncMessage("CT_TASKS", next);
       return next;
     });
+    if (event.id) {
+      fetch(`/api/events/${event.id}/tasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taskId, ...updated }),
+      }).catch(() => {});
+    }
   };
 
   const handleAddTask = (taskData: Omit<TimelineTask, "id" | "created_at" | "updated_at">) => {
@@ -294,6 +385,14 @@ export default function Home() {
       publishSyncMessage("CT_TASKS", next);
       return next;
     });
+    const targetEventId = taskData.event_id || event.id;
+    if (targetEventId) {
+      fetch(`/api/events/${targetEventId}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTask),
+      }).catch(() => {});
+    }
   };
 
   const handleAppendGeneratedTasks = (generatedTasks: TimelineTask[]) => {

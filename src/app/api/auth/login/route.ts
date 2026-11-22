@@ -3,6 +3,7 @@ import { PinLoginSchema } from "@/lib/validators/schemas";
 import { createServerClient } from "@/lib/supabase/server";
 import { INITIAL_USERS } from "@/lib/mock-db";
 import { verifyPinHash } from "@/lib/auth/pin-hash";
+import { checkRateLimit, getClientIp } from "@/lib/auth/rate-limit";
 import {
   signSessionToken,
   getSessionCookieOptions,
@@ -18,6 +19,18 @@ const isSupabaseConfigured = () =>
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const limit = checkRateLimit(`login:${ip}`, 20, 5 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Terlalu banyak percobaan login. Coba lagi dalam ${limit.retryAfterSeconds} detik.`,
+        },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const parsed = PinLoginSchema.safeParse(body);
 
@@ -39,7 +52,7 @@ export async function POST(request: Request) {
       const { data: userRow, error: fetchError } = await supabase
         .from("users")
         .select(
-          "id, full_name, email, phone, pin_hash, base_role, is_superadmin, avatar_url, failed_pin_attempts, locked_until, created_at"
+          "id, full_name, email, phone, pin_hash, base_role, default_section, is_role_assigned, is_superadmin, avatar_url, failed_pin_attempts, locked_until, created_at"
         )
         .eq("id", user_id)
         .maybeSingle();
@@ -132,6 +145,8 @@ export async function POST(request: Request) {
         email: userRow.email,
         phone: userRow.phone,
         base_role: userRow.base_role,
+        default_section: userRow.default_section ?? null,
+        is_role_assigned: Boolean(userRow.is_role_assigned),
         is_superadmin: Boolean(userRow.is_superadmin),
         avatar_url: userRow.avatar_url,
         failed_pin_attempts: 0,

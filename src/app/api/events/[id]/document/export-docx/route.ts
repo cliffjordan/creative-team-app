@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
+import { getServerSession } from "@/lib/auth/session";
 import type { EventProjectBriefData } from "@/lib/proposal/export-proposal-word";
 
 function escapeXml(str: string): string {
@@ -297,6 +298,14 @@ function buildBudgetDetailOoxmlBlock(data: EventProjectBriefData): string {
 }
 
 export async function POST(request: Request) {
+  const session = await getServerSession();
+  if (!session) {
+    return NextResponse.json(
+      { success: false, error: "Sesi tidak ditemukan. Silakan login terlebih dahulu." },
+      { status: 401 }
+    );
+  }
+
   try {
     const data = (await request.json()) as EventProjectBriefData;
     const templatePath = path.join(

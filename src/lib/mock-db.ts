@@ -16,6 +16,8 @@ import {
   SectionType,
 } from "@/types/domain";
 
+import { getTodayIsoWIB } from "@/lib/utils";
+
 // Empty initial seed arrays (populated dynamically from Supabase)
 export const INITIAL_USERS: User[] = [];
 
@@ -23,7 +25,7 @@ export const INITIAL_EVENT: Event = {
   id: "",
   title: "Belum Ada Event",
   theme: "",
-  event_date: new Date().toISOString().slice(0, 10),
+  event_date: getTodayIsoWIB(),
   status: "DRAFT",
   live_started_at: null,
   live_ended_at: null,

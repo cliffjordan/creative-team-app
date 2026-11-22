@@ -46,19 +46,40 @@ export function Header({
   const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setNotifications(parsed);
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            setNotifications(parsed);
+          }
         }
+      } catch {
+        // Ignore malformed localStorage
       }
-    } catch {
-      // Ignore malformed localStorage
     }
-  }, []);
+
+    if (!currentUser) return;
+    let active = true;
+    fetch("/api/notifications", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data?.success || !Array.isArray(data.notifications)) return;
+        setNotifications(data.notifications as AppNotification[]);
+        try {
+          window.localStorage.setItem(
+            NOTIFICATIONS_STORAGE_KEY,
+            JSON.stringify(data.notifications)
+          );
+        } catch {}
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -105,6 +126,11 @@ export function Header({
     persistNotifications(
       notifications.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: now } : n))
     );
+    fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
   };
 
   const markAllAsRead = () => {
@@ -115,6 +141,11 @@ export function Header({
         n.user_id === currentUser.id && !n.read_at ? { ...n, read_at: now } : n
       )
     );
+    fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markAll: true }),
+    }).catch(() => {});
   };
 
   return (

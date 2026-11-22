@@ -22,7 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { formatCurrencyIDR } from "@/lib/utils";
+import { formatCurrencyIDR, getTodayIsoWIB } from "@/lib/utils";
 import {
   CalendarDays,
   ChevronLeft,
@@ -119,7 +119,7 @@ export function CalendarView({
   const [selectedTask, setSelectedTask] = useState<TimelineTask | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
-  const [newDate, setNewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newDate, setNewDate] = useState(() => getTodayIsoWIB());
   const [newEventId, setNewEventId] = useState(activeEvent.id);
   const [newSection, setNewSection] = useState<SectionType>("ACARA");
   const [newAssignee, setNewAssignee] = useState("");
@@ -146,7 +146,7 @@ export function CalendarView({
     }
   }, [newAssignee, sectionUsers]);
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = getTodayIsoWIB();
 
   const weekDays = useMemo(() => {
     const start = new Date(anchorDate);

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { INITIAL_EVENT, getNotesAccessMode, isCreativeLeader } from "@/lib/mock-db";
+import { getTodayIsoWIB } from "@/lib/utils";
 import { publishSyncMessage, subscribeSyncMessages } from "@/lib/sync/realtime-bus";
 import { Event, EventMeetingNote, User } from "@/types/domain";
 import { Card } from "@/components/ui/card";
@@ -66,7 +67,7 @@ export function MeetingNotesView({
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [meetingType, setMeetingType] = useState<MeetingType>("PRE_EVENT_COORDINATION");
-  const [meetingDate, setMeetingDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [meetingDate, setMeetingDate] = useState(() => getTodayIsoWIB());
   const [notesContent, setNotesContent] = useState("");
   const [recordedBy, setRecordedBy] = useState(currentUser?.full_name || "Sekretaris");
 

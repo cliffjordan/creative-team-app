@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 
-const PROTECTED_PREFIXES = ["/events", "/cue-cards"];
+const PROTECTED_PREFIXES = ["/events", "/cue-cards", "/profile"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -27,5 +27,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/events/:path*", "/cue-cards/:path*"],
+  matcher: ["/events/:path*", "/cue-cards/:path*", "/profile/:path*"],
 };

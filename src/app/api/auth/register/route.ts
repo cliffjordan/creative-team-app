@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { hashPin, verifyPinHash } from "@/lib/auth/pin-hash";
+import { checkRateLimit, getClientIp } from "@/lib/auth/rate-limit";
 import {
   signSessionToken,
   getSessionCookieOptions,
@@ -24,6 +25,18 @@ const RegisterUserSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const limit = checkRateLimit(`register:${ip}`, 6, 10 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Batas pendaftaran tercapai sementara. Coba lagi dalam ${limit.retryAfterSeconds} detik.`,
+        },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const parsed = RegisterUserSchema.safeParse(body);
 

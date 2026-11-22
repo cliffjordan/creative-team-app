@@ -50,6 +50,18 @@ async function verifyCreativeLeaderSession(): Promise<string | null> {
   if (!session) {
     return "Sesi login tidak valid. Silakan login kembali sebagai Creative Leader.";
   }
+  if (isSupabaseConfigured()) {
+    const supabase = createServerClient();
+    const { data: actor } = await supabase
+      .from("users")
+      .select("base_role, is_superadmin")
+      .eq("id", session.userId)
+      .maybeSingle();
+    if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
+      return "Akses ditolak: Hanya Creative Leader yang berwenang melakukan aksi ini.";
+    }
+    return null;
+  }
   if (session.baseRole !== "CREATIVE_LEADER" && !session.isSuperadmin) {
     return "Akses ditolak: Hanya Creative Leader yang berwenang melakukan aksi ini.";
   }
@@ -318,6 +330,41 @@ export async function updateEventAction(
     }
 
     const supabase = createServerClient();
+    const [{ data: actor }, { data: targetEvent }, { data: rosterLeader }] = await Promise.all([
+      supabase
+        .from("users")
+        .select("base_role, is_superadmin")
+        .eq("id", session.userId)
+        .maybeSingle(),
+      supabase
+        .from("events")
+        .select("event_leader_id")
+        .eq("id", id)
+        .maybeSingle(),
+      supabase
+        .from("event_roster")
+        .select("id")
+        .eq("event_id", id)
+        .eq("user_id", session.userId)
+        .or("role_in_event.eq.EVENT_LEADER,is_co_controller.eq.true")
+        .maybeSingle(),
+    ]);
+
+    const canUpdate =
+      actor &&
+      (actor.base_role === "CREATIVE_LEADER" ||
+        actor.base_role === "WAKIL_LEADER" ||
+        Boolean(actor.is_superadmin) ||
+        targetEvent?.event_leader_id === session.userId ||
+        Boolean(rosterLeader));
+
+    if (!canUpdate) {
+      return {
+        success: false,
+        error: "Akses ditolak: Hanya Creative Leader, Wakil Leader, atau Event Leader yang dapat mengubah event.",
+      };
+    }
+
     const { data, error } = await supabase
       .from("events")
       .update(updates)

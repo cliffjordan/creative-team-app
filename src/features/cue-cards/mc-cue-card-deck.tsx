@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { INITIAL_EVENT, INITIAL_RUNDOWN_ITEMS } from "@/lib/mock-db";
+import { INITIAL_EVENT, INITIAL_RUNDOWN_ITEMS, isUnassignedMember } from "@/lib/mock-db";
 import { subscribeSyncMessages } from "@/lib/sync/realtime-bus";
 import { useAuth } from "@/providers/auth-provider";
 import { Event, EventTechnicalGuide, RundownItem } from "@/types/domain";
@@ -185,6 +185,28 @@ export function McCueCardDeck() {
               </Button>
             </Link>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isUnassignedMember(currentUser)) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+        <div className="max-w-md w-full rounded-3xl bg-white border border-slate-200 p-8 text-center space-y-3 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-extrabold text-slate-900">Akses Cue Cards Terkunci</h2>
+          <p className="text-xs text-slate-500">
+            Akun Anda berstatus Member Umum dan menunggu penugasan role/divisi oleh Creative Leader.
+          </p>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition"
+          >
+            Kembali ke Workspace
+          </Link>
         </div>
       </div>
     );
