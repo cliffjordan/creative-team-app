@@ -4,6 +4,10 @@ import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
 import {
+  executeSupabaseEventDeletion,
+  validateEventDeletionStatus,
+} from "@/lib/events/delete-event";
+import {
   INITIAL_EVENT,
   INITIAL_EVENTS,
   INITIAL_ROSTER,
@@ -230,6 +234,7 @@ const demoRoster: EventRosterMember[] = INITIAL_ROSTER.map((r) => ({
 export async function getEventsAction(
   statusFilter?: EventStatus | "ALL"
 ): Promise<ActionResult<EventWithLeader[]>> {
+  noStore();
   if (!isSupabaseConfigured()) {
     const filtered =
       statusFilter && statusFilter !== "ALL"
@@ -275,6 +280,7 @@ export async function getEventDetailAction(eventId: string): Promise<
     users: Pick<User, "id" | "full_name" | "base_role" | "avatar_url">[];
   }>
 > {
+  noStore();
   if (!isSupabaseConfigured()) {
     const ev = demoEvents.find((e) => e.id === eventId) ?? demoEvents[0];
     if (!ev) {
@@ -285,7 +291,7 @@ export async function getEventDetailAction(eventId: string): Promise<
       data: {
         event: ev,
         roster: demoRoster.filter((r) => r.event_id === ev.id),
-        users: INITIAL_USERS.map((u) => ({
+        users: INITIAL_USERS.filter((u) => !u.is_superadmin).map((u) => ({
           id: u.id,
           full_name: u.full_name,
           base_role: u.base_role,
@@ -322,6 +328,7 @@ export async function getEventDetailAction(eventId: string): Promise<
       supabase
         .from("users")
         .select("id, full_name, base_role, avatar_url")
+        .eq("is_superadmin", false)
         .order("full_name", { ascending: true }),
     ]);
 
@@ -868,6 +875,67 @@ export async function removeRosterAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : "Gagal menghapus anggota roster",
+    };
+  }
+}
+
+export async function deleteEventAction(
+  eventId: string,
+  reason?: string
+): Promise<ActionResult<{ id: string; title: string; status: EventStatus }>> {
+  if (!isSupabaseConfigured()) {
+    const session = await getServerSession();
+    if (!session) {
+      return {
+        success: false,
+        error: "Sesi login tidak valid. Silakan masuk terlebih dahulu.",
+      };
+    }
+    if (session.baseRole !== "CREATIVE_LEADER" && !session.isSuperadmin) {
+      return {
+        success: false,
+        error: "Hanya Creative Leader atau Superadmin yang berhak menghapus event.",
+      };
+    }
+
+    const idx = demoEvents.findIndex((ev) => ev.id === eventId);
+    if (idx === -1) {
+      return { success: false, error: "Event tidak ditemukan." };
+    }
+    const target = demoEvents[idx];
+    const validation = validateEventDeletionStatus(target.status, reason);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
+    demoEvents.splice(idx, 1);
+    for (let i = demoRoster.length - 1; i >= 0; i -= 1) {
+      if (demoRoster[i].event_id === eventId) {
+        demoRoster.splice(i, 1);
+      }
+    }
+
+    revalidatePath("/events");
+    revalidatePath("/");
+    return {
+      success: true,
+      data: { id: target.id, title: target.title, status: target.status },
+    };
+  }
+
+  try {
+    const result = await executeSupabaseEventDeletion(eventId, reason);
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    revalidatePath("/events");
+    revalidatePath("/");
+    return { success: true, data: result.deletedEvent };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Gagal menghapus event",
     };
   }
 }

@@ -21,12 +21,16 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
-/** Server-only Supabase client with service role privileges. */
+/** Server-only Supabase client with service role privileges (bypassing Next.js Data Cache). */
 export function createServerClient() {
   return createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
+    },
+    global: {
+      fetch: (url, options = {}) =>
+        fetch(url, { ...options, cache: "no-store" }),
     },
   });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
+import { requireEventAccess } from "@/lib/auth/guards";
 import { AssignRosterSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, roster: [] },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ success: true, roster: [] }, { headers: NO_CACHE_HEADERS });
   }

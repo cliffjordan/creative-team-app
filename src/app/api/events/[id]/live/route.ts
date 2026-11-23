@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getServerSession } from "@/lib/auth/session";
+import {
+  requireEventAccess,
+  requireEventController,
+  SafeHttpUrlSchema,
+} from "@/lib/auth/guards";
 import { EventStatusSchema, LogSeveritySchema, LogStatusSchema, LogTypeSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +25,7 @@ const CreateLogBodySchema = z.object({
   delta_seconds: z.number().int().nullable().optional(),
   reported_by: z.string().optional(),
   description: z.string().min(1).max(2000),
-  photo_url: z.string().nullable().optional(),
+  photo_url: SafeHttpUrlSchema,
   severity: LogSeveritySchema.default("LOW"),
   status: LogStatusSchema.default("OPEN"),
 });
@@ -51,6 +55,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, event: null, logs: [] },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ success: true, event: null, logs: [] }, { headers: NO_CACHE_HEADERS });
   }
@@ -82,12 +93,13 @@ export async function POST(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
-  }
-
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+  }
+  const session = access.session;
+
   try {
     const body = await request.json();
     const parsed = CreateLogBodySchema.safeParse(body);
@@ -159,12 +171,12 @@ export async function PATCH(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
+  const eventId = context.params.id;
+  const auth = await requireEventController(eventId);
+  if (!auth.allowed) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
   }
 
-  const eventId = context.params.id;
   try {
     const body = await request.json();
     const parsed = PatchRuntimeSchema.safeParse({
@@ -193,8 +205,8 @@ export async function PATCH(
         .update({
           ...(p.log_status !== undefined ? { status: p.log_status } : {}),
           ...(p.resolution_notes !== undefined ? { resolution_notes: p.resolution_notes } : {}),
-          ...(p.resolved_by !== undefined ? { resolved_by: p.resolved_by } : {}),
-          ...(p.resolved_at !== undefined ? { resolved_at: p.resolved_at } : {}),
+          resolved_by: auth.session.userId,
+          resolved_at: p.resolved_at || new Date().toISOString(),
         })
         .eq("id", p.logId)
         .eq("event_id", eventId)
@@ -244,9 +256,9 @@ export async function DELETE(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
+  const auth = await requireEventController(context.params.id);
+  if (!auth.allowed) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
   }
 
   const url = new URL(request.url);

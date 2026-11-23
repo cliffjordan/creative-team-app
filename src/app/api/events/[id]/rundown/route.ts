@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getServerSession } from "@/lib/auth/session";
+import { requireEventAccess } from "@/lib/auth/guards";
 import { RundownItemStatusSchema, SectionTypeSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +62,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, rundownId: null, items: [] },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ success: true, rundownId: null, items: [] }, { headers: NO_CACHE_HEADERS });
   }
@@ -110,12 +117,26 @@ export async function PUT(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
+  const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
   }
 
-  const eventId = context.params.id;
+  const canEditRundown =
+    access.isTopLeader ||
+    access.roster?.section === "ACARA" ||
+    access.roster?.section === "ALL";
+  if (!canEditRundown) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Hanya tim Seksi Acara atau Pimpinan Event yang dapat mengubah Master Rundown.",
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await request.json();
     const parsed = SyncRundownSchema.safeParse(body);

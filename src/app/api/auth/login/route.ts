@@ -20,7 +20,7 @@ const isSupabaseConfigured = () =>
 export async function POST(request: Request) {
   try {
     const ip = getClientIp(request);
-    const limit = checkRateLimit(`login:${ip}`, 20, 5 * 60 * 1000);
+    const limit = checkRateLimit(`login:${ip}`, 10, 5 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         {
@@ -46,6 +46,16 @@ export async function POST(request: Request) {
     }
 
     const { user_id, pin } = parsed.data;
+    const accountLimit = checkRateLimit(`login:${ip}:${user_id}`, 6, 5 * 60 * 1000);
+    if (!accountLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Terlalu banyak percobaan PIN untuk akun ini. Coba lagi dalam ${accountLimit.retryAfterSeconds} detik.`,
+        },
+        { status: 429 }
+      );
+    }
 
     if (isSupabaseConfigured()) {
       const supabase = createServerClient();

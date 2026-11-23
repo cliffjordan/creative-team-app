@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
+import { requireEventAccess } from "@/lib/auth/guards";
 import { SectionTypeSchema, TaskPhaseSchema, TaskStatusSchema } from "@/lib/validators/schemas";
 import type { TaskPicHistoryEntry } from "@/types/domain";
 
@@ -50,6 +51,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, tasks: [] },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ success: true, tasks: [] }, { headers: NO_CACHE_HEADERS });
   }
@@ -424,9 +432,10 @@ export async function DELETE(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
+  const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
   }
 
   const url = new URL(request.url);
@@ -440,11 +449,37 @@ export async function DELETE(
   }
 
   const supabase = createServerClient();
+  const { data: targetTask } = await supabase
+    .from("timeline_tasks")
+    .select("id, section")
+    .eq("id", taskId)
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (!targetTask) {
+    return NextResponse.json({ success: false, error: "Task tidak ditemukan." }, { status: 404 });
+  }
+
+  const canDelete =
+    access.isTopLeader ||
+    (access.roster?.role_in_event === "SECTION_LEADER" &&
+      access.roster?.section === targetTask.section);
+
+  if (!canDelete) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Hanya Section Leader divisi terkait atau Pimpinan Event yang berhak menghapus task ini.",
+      },
+      { status: 403 }
+    );
+  }
+
   const { error } = await supabase
     .from("timeline_tasks")
     .delete()
     .eq("id", taskId)
-    .eq("event_id", context.params.id);
+    .eq("event_id", eventId);
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

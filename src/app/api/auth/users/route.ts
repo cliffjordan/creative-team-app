@@ -5,6 +5,7 @@ import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server"
 import { INITIAL_USERS } from "@/lib/mock-db";
 import { getServerSession } from "@/lib/auth/session";
 import { hashPin } from "@/lib/auth/pin-hash";
+import { SafeNameSchema } from "@/lib/validators/schemas";
 import { SectionTypeSchema, UserBaseRoleSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -17,24 +18,64 @@ const NO_CACHE_HEADERS = {
 const USER_SELECT_COLUMNS =
   "id, full_name, email, phone, is_superadmin, base_role, default_section, is_role_assigned, avatar_url, failed_pin_attempts, locked_until, created_at";
 
+const PUBLIC_USER_SELECT_COLUMNS =
+  "id, full_name, base_role, is_role_assigned, is_superadmin, avatar_url";
+
 const CreateMemberSchema = z.object({
-  full_name: z.string().trim().min(2, "Nama minimal 2 karakter").max(120),
+  full_name: SafeNameSchema,
   phone: z.string().trim().min(8, "Nomor WhatsApp minimal 8 digit").max(25),
   email: z.string().trim().email("Format email tidak valid").optional().or(z.literal("")),
   base_role: UserBaseRoleSchema.default("MEMBER"),
   default_section: SectionTypeSchema.nullable().optional(),
   is_role_assigned: z.boolean().optional().default(true),
-  is_superadmin: z.boolean().optional().default(false),
+  is_superadmin: z.boolean().optional(),
   pin: z.string().length(4, "PIN harus 4 digit").regex(/^\d{4}$/, "PIN harus 4 digit angka"),
 });
 
+async function ensureTechnicalSuperadmin(
+  supabase: ReturnType<typeof createServerClient>
+) {
+  const { data: existingSuper } = await supabase
+    .from("users")
+    .select("id")
+    .eq("is_superadmin", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingSuper) return;
+
+  const defaultPin = process.env.SUPERADMIN_DEFAULT_PIN || "9999";
+  await supabase.from("users").insert({
+    full_name: "System Superadmin",
+    email: "superadmin@creativehub.local",
+    phone: "+6280000000000",
+    pin_hash: hashPin(defaultPin),
+    is_superadmin: true,
+    base_role: "MEMBER",
+    default_section: null,
+    is_role_assigned: true,
+    failed_pin_attempts: 0,
+  });
+}
+
 export async function GET() {
   noStore();
+  const session = await getServerSession();
   if (!isSupabaseConfigured()) {
+    const safeUsers = session
+      ? INITIAL_USERS
+      : INITIAL_USERS.map((u) => ({
+          id: u.id,
+          full_name: u.full_name,
+          base_role: u.base_role,
+          is_role_assigned: u.is_role_assigned,
+          is_superadmin: Boolean(u.is_superadmin),
+          avatar_url: u.avatar_url,
+        }));
     return NextResponse.json(
       {
         success: true,
-        users: INITIAL_USERS,
+        users: safeUsers,
       },
       { headers: NO_CACHE_HEADERS }
     );
@@ -42,9 +83,11 @@ export async function GET() {
 
   try {
     const supabase = createServerClient();
+    await ensureTechnicalSuperadmin(supabase);
+
     const { data, error } = await supabase
       .from("users")
-      .select(USER_SELECT_COLUMNS)
+      .select(session ? USER_SELECT_COLUMNS : PUBLIC_USER_SELECT_COLUMNS)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -86,15 +129,21 @@ export async function POST(request: Request) {
     }
 
     const { full_name, phone, email, base_role, default_section, is_role_assigned, is_superadmin, pin } = parsed.data;
+    if (is_superadmin === true) {
+      return NextResponse.json(
+        { success: false, error: "Akun teknis Superadmin tidak dapat dibuat melalui Manajemen Member." },
+        { status: 403 }
+      );
+    }
+
     const normalizedEmail = email && email.trim().length > 0 ? email.trim().toLowerCase() : null;
-    const isSuper = Boolean(is_superadmin);
     const resolvedSection =
       default_section && default_section !== "ALL" ? default_section : null;
 
     if (!isSupabaseConfigured()) {
-      if ((base_role === "CREATIVE_LEADER" || isSuper) && !session.isSuperadmin) {
+      if (session.baseRole !== "CREATIVE_LEADER" && !session.isSuperadmin) {
         return NextResponse.json(
-          { success: false, error: "Hanya Superadmin yang berhak menambah akun Creative Leader atau Superadmin." },
+          { success: false, error: "Hanya Creative Leader yang dapat menambah anggota." },
           { status: 403 }
         );
       }
@@ -109,7 +158,7 @@ export async function POST(request: Request) {
             base_role,
             default_section: resolvedSection,
             is_role_assigned: is_role_assigned ?? true,
-            is_superadmin: isSuper,
+            is_superadmin: false,
             failed_pin_attempts: 0,
             created_at: new Date().toISOString(),
           },
@@ -127,14 +176,7 @@ export async function POST(request: Request) {
 
     if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
       return NextResponse.json(
-        { success: false, error: "Hanya Creative Leader atau Superadmin yang dapat menambah anggota." },
-        { status: 403 }
-      );
-    }
-
-    if ((base_role === "CREATIVE_LEADER" || isSuper) && !actor.is_superadmin) {
-      return NextResponse.json(
-        { success: false, error: "Hanya Superadmin yang berhak membuat akun Creative Leader atau Superadmin." },
+        { success: false, error: "Hanya Creative Leader yang dapat menambah anggota." },
         { status: 403 }
       );
     }
@@ -160,7 +202,7 @@ export async function POST(request: Request) {
         base_role,
         default_section: resolvedSection,
         is_role_assigned: is_role_assigned ?? true,
-        is_superadmin: isSuper,
+        is_superadmin: false,
         failed_pin_attempts: 0,
       })
       .select(USER_SELECT_COLUMNS)
@@ -183,7 +225,6 @@ export async function POST(request: Request) {
           target_user_id: created.id,
           target_name: created.full_name,
           base_role: created.base_role,
-          is_superadmin: created.is_superadmin,
         },
       });
     } catch {

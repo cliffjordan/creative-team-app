@@ -19,7 +19,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const { users, refreshUsers, setCurrentUserDirect } = useAuth();
 
-  const isFirstAccount = users.length === 0;
+  const operationalUsers = users.filter((u) => !u.is_superadmin);
+  const isFirstAccount = operationalUsers.length === 0;
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -136,7 +137,7 @@ export default function RegisterPage() {
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <span>
                   {isFirstAccount
-                    ? "Akun pertama yang terdaftar otomatis ditetapkan sebagai Creative Leader (Superadmin)."
+                    ? "Akun pertama yang terdaftar otomatis ditetapkan sebagai Creative Leader tim operasional."
                     : "Jabatan & divisi pelayanan ditetapkan langsung oleh Creative Leader setelah akun terdaftar."}
                 </span>
               </div>
@@ -176,7 +177,7 @@ export default function RegisterPage() {
                 {isFirstAccount ? (
                   <>
                     <strong>Status Pendaftar Pertama:</strong> Anda akan otomatis menjadi{" "}
-                    <strong>Creative Leader (Superadmin)</strong> untuk mengelola member dan event.
+                    <strong>Creative Leader</strong> untuk mengelola member dan event.
                   </>
                 ) : (
                   <>

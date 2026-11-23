@@ -3,13 +3,13 @@ import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
 import { hashPin } from "@/lib/auth/pin-hash";
-import { SectionTypeSchema, UserBaseRoleSchema } from "@/lib/validators/schemas";
+import { SafeNameSchema, SectionTypeSchema, UserBaseRoleSchema } from "@/lib/validators/schemas";
 
 const USER_SELECT_COLUMNS =
   "id, full_name, email, phone, is_superadmin, base_role, default_section, is_role_assigned, avatar_url, failed_pin_attempts, locked_until, created_at";
 
 const UpdateMemberSchema = z.object({
-  full_name: z.string().trim().min(2).max(120).optional(),
+  full_name: SafeNameSchema.optional(),
   phone: z.string().trim().min(8).max(25).optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
   base_role: UserBaseRoleSchema.optional(),
@@ -49,7 +49,7 @@ async function requireGovernanceActor() {
       : {
           allowed: false as const,
           status: 403,
-          error: "Hanya Creative Leader atau Superadmin yang berhak mengelola anggota.",
+          error: "Hanya Creative Leader yang berhak mengelola anggota.",
           actorId: null,
           isSuperadmin: false,
           baseRole: session.baseRole,
@@ -67,7 +67,7 @@ async function requireGovernanceActor() {
     return {
       allowed: false as const,
       status: 403,
-      error: "Hanya Creative Leader atau Superadmin yang berhak mengelola anggota.",
+      error: "Hanya Creative Leader yang berhak mengelola anggota.",
       actorId: null,
       isSuperadmin: false,
       baseRole: actor?.base_role ?? null,
@@ -105,6 +105,16 @@ export async function PATCH(
     }
 
     const p = parsed.data;
+    if (p.is_superadmin !== undefined) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Status Superadmin dikelola secara terisolasi dan tidak dapat diubah lewat Manajemen Member.",
+        },
+        { status: 403 }
+      );
+    }
+
     const updatePayload: Record<string, unknown> = {};
     if (p.full_name !== undefined) updatePayload.full_name = p.full_name.trim();
     if (p.phone !== undefined) updatePayload.phone = p.phone.trim();
@@ -117,25 +127,12 @@ export async function PATCH(
         updatePayload.is_role_assigned = true;
       }
     }
-    if (p.is_superadmin !== undefined) {
-      updatePayload.is_superadmin = p.is_superadmin;
-    }
     if (p.default_section !== undefined) updatePayload.default_section = p.default_section;
     if (p.is_role_assigned !== undefined) updatePayload.is_role_assigned = p.is_role_assigned;
     if (p.new_pin) {
       updatePayload.pin_hash = hashPin(p.new_pin);
       updatePayload.failed_pin_attempts = 0;
       updatePayload.locked_until = null;
-    }
-
-    if ((p.base_role === "CREATIVE_LEADER" || p.is_superadmin !== undefined) && !auth.isSuperadmin) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Hanya Superadmin yang berhak menunjuk atau mencabut hak Creative Leader dan Superadmin.",
-        },
-        { status: 403 }
-      );
     }
 
     if (!isSupabaseConfigured()) {
@@ -153,33 +150,15 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "Pengguna tidak ditemukan." }, { status: 404 });
     }
 
-    // Strict separation: non-superadmin CREATIVE_LEADER cannot alter/reset CREATIVE_LEADER or SUPERADMIN accounts
-    if ((currentTarget.is_superadmin || currentTarget.base_role === "CREATIVE_LEADER") && !auth.isSuperadmin) {
+    // Strict isolation: technical Superadmin account cannot be modified via member management
+    if (currentTarget.is_superadmin) {
       return NextResponse.json(
         {
           success: false,
-          error: "Hanya Superadmin yang berhak mengubah akun atau mereset PIN Creative Leader dan Superadmin.",
+          error: "Akun teknis Superadmin terisolasi dan tidak dapat diubah dari Manajemen Member.",
         },
         { status: 403 }
       );
-    }
-
-    // Anti Last-Superadmin Lockout protection
-    if (p.is_superadmin === false && currentTarget.is_superadmin) {
-      const { count: superCount } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("is_superadmin", true);
-
-      if ((superCount ?? 0) <= 1) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Tidak dapat mencabut status Superadmin terakhir. Tunjuk Superadmin lain terlebih dahulu.",
-          },
-          { status: 400 }
-        );
-      }
     }
 
     // Anti Last-Creative-Leader Lockout protection
@@ -187,7 +166,8 @@ export async function PATCH(
       const { count: leaderCount } = await supabase
         .from("users")
         .select("id", { count: "exact", head: true })
-        .eq("base_role", "CREATIVE_LEADER");
+        .eq("base_role", "CREATIVE_LEADER")
+        .eq("is_superadmin", false);
 
       if ((leaderCount ?? 0) <= 1) {
         return NextResponse.json(
@@ -218,8 +198,6 @@ export async function PATCH(
     try {
       const actionType = p.new_pin
         ? "USER_PIN_RESET"
-        : p.is_superadmin !== undefined
-        ? "USER_SUPERADMIN_UPDATED"
         : p.base_role !== undefined
         ? "USER_ROLE_UPDATED"
         : "USER_UPDATED";
@@ -233,8 +211,6 @@ export async function PATCH(
           target_name: data.full_name,
           previous_role: currentTarget.base_role,
           new_role: data.base_role,
-          previous_superadmin: Boolean(currentTarget.is_superadmin),
-          new_superadmin: Boolean(data.is_superadmin),
           pin_reset: Boolean(p.new_pin),
         },
       });
@@ -283,35 +259,22 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Akun tidak ditemukan." }, { status: 404 });
   }
 
-  if ((currentTarget.is_superadmin || currentTarget.base_role === "CREATIVE_LEADER") && !auth.isSuperadmin) {
+  if (currentTarget.is_superadmin) {
     return NextResponse.json(
       {
         success: false,
-        error: "Hanya Superadmin yang berhak menghapus akun Creative Leader atau Superadmin.",
+        error: "Akun teknis Superadmin terisolasi dan tidak dapat dihapus.",
       },
       { status: 403 }
     );
-  }
-
-  if (currentTarget.is_superadmin) {
-    const { count: superCount } = await supabase
-      .from("users")
-      .select("id", { count: "exact", head: true })
-      .eq("is_superadmin", true);
-
-    if ((superCount ?? 0) <= 1) {
-      return NextResponse.json(
-        { success: false, error: "Tidak dapat menghapus Superadmin terakhir." },
-        { status: 400 }
-      );
-    }
   }
 
   if (currentTarget.base_role === "CREATIVE_LEADER") {
     const { count: leaderCount } = await supabase
       .from("users")
       .select("id", { count: "exact", head: true })
-      .eq("base_role", "CREATIVE_LEADER");
+      .eq("base_role", "CREATIVE_LEADER")
+      .eq("is_superadmin", false);
 
     if ((leaderCount ?? 0) <= 1) {
       return NextResponse.json(

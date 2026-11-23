@@ -1733,7 +1733,7 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS operation_records (
   operation_id UUID PRIMARY KEY,
-  event_id UUID REFERENCES events(id) ON DELETE CASCADE,
+  event_id UUID REFERENCES events(id) ON DELETE SET NULL,
   action_type TEXT NOT NULL,
   actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
   details JSONB DEFAULT '{}'::jsonb,

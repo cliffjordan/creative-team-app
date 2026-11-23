@@ -185,31 +185,47 @@ export default function Home() {
       }
     });
 
+    const applyWorkspaceBootstrap = (bootstrap: {
+      events: Event[];
+      roster: EventRosterMember[];
+      tasks: TimelineTask[];
+    }) => {
+      const { events: serverEvents, roster: serverRoster, tasks: serverTasks } = bootstrap;
+      setEvents(serverEvents);
+      try {
+        localStorage.setItem("CT_EVENTS", JSON.stringify(serverEvents));
+      } catch {}
+      setRoster(serverRoster);
+      try {
+        localStorage.setItem("CT_ROSTER", JSON.stringify(serverRoster));
+      } catch {}
+      if (Array.isArray(serverTasks) && serverTasks.length > 0) {
+        setTasks(serverTasks);
+        try {
+          localStorage.setItem("CT_TASKS", JSON.stringify(serverTasks));
+        } catch {}
+      }
+      setEvent((prev) => {
+        if (serverEvents.length === 0) {
+          try {
+            localStorage.removeItem("CT_EVENT");
+          } catch {}
+          return INITIAL_EVENT;
+        }
+        const matched = prev.id ? serverEvents.find((ev) => ev.id === prev.id) : undefined;
+        const nextActive = matched ?? serverEvents[0];
+        try {
+          localStorage.setItem("CT_EVENT", JSON.stringify(nextActive));
+        } catch {}
+        return nextActive;
+      });
+    };
+
     const syncWorkspaceFromServer = () => {
       getWorkspaceBootstrapAction()
         .then((res) => {
           if (!res.success || !res.data) return;
-          const { events: serverEvents, roster: serverRoster, tasks: serverTasks } = res.data;
-          setEvents(serverEvents);
-          try {
-            localStorage.setItem("CT_EVENTS", JSON.stringify(serverEvents));
-          } catch {}
-          setRoster(serverRoster);
-          try {
-            localStorage.setItem("CT_ROSTER", JSON.stringify(serverRoster));
-          } catch {}
-          if (Array.isArray(serverTasks) && serverTasks.length > 0) {
-            setTasks(serverTasks);
-            try {
-              localStorage.setItem("CT_TASKS", JSON.stringify(serverTasks));
-            } catch {}
-          }
-          if (serverEvents.length > 0) {
-            setEvent((prev) => {
-              const matched = prev.id ? serverEvents.find((ev) => ev.id === prev.id) : undefined;
-              return matched ?? prev;
-            });
-          }
+          applyWorkspaceBootstrap(res.data);
         })
         .catch(() => {});
     };
@@ -241,11 +257,26 @@ export default function Home() {
     getWorkspaceBootstrapAction()
       .then((res) => {
         if (!res.success || !res.data) return;
-        setEvents(res.data.events);
-        setRoster(res.data.roster);
-        if (res.data.tasks.length > 0) {
-          setTasks(res.data.tasks);
+        const { events: serverEvents, roster: serverRoster, tasks: serverTasks } = res.data;
+        setEvents(serverEvents);
+        setRoster(serverRoster);
+        if (serverTasks.length > 0) {
+          setTasks(serverTasks);
         }
+        setEvent((prev) => {
+          if (serverEvents.length === 0) {
+            try {
+              localStorage.removeItem("CT_EVENT");
+            } catch {}
+            return INITIAL_EVENT;
+          }
+          const matched = prev.id ? serverEvents.find((ev) => ev.id === prev.id) : undefined;
+          const nextActive = matched ?? serverEvents[0];
+          try {
+            localStorage.setItem("CT_EVENT", JSON.stringify(nextActive));
+          } catch {}
+          return nextActive;
+        });
       })
       .catch(() => {});
   }, [currentUser?.id]);
@@ -593,6 +624,20 @@ export default function Home() {
         />
 
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto w-full pb-24 lg:pb-10">
+          {currentUser?.is_superadmin && (
+            <div className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/90 px-4 py-3 text-xs text-indigo-950 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+              <span>
+                <strong>Akun Teknis System Superadmin</strong> — Anda memiliki akses penuh ke konsol pemeliharaan server, diagnostik database, audit log, dan pemulihan akun darurat.
+              </span>
+              <Link
+                href="/superadmin"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 transition shrink-0"
+              >
+                Buka Server Maintenance
+              </Link>
+            </div>
+          )}
+
           {unassignedMember && (
             <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-900 flex items-center justify-between gap-3">
               <span>

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 
-const PROTECTED_PREFIXES = ["/events", "/cue-cards", "/profile"];
+const PROTECTED_PREFIXES = ["/events", "/cue-cards", "/profile", "/superadmin"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -23,9 +23,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  if (pathname.startsWith("/superadmin") && !session.isSuperadmin) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/events/:path*", "/cue-cards/:path*", "/profile/:path*"],
+  matcher: ["/events/:path*", "/cue-cards/:path*", "/profile/:path*", "/superadmin/:path*"],
 };

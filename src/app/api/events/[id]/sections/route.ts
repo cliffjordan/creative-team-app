@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
+import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getServerSession } from "@/lib/auth/session";
+import {
+  requireEventAccess,
+  requireSectionWriteAccess,
+  type SectionResourceKind,
+} from "@/lib/auth/guards";
+import {
+  SafeHttpUrlSchema,
+  SectionTypeSchema,
+  TaskPhaseSchema,
+} from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -10,9 +20,7 @@ const NO_CACHE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
 };
 
-type SectionKind = "tools" | "decor" | "shotlist" | "references" | "guides";
-
-const TABLE_MAP: Record<SectionKind, string> = {
+const TABLE_MAP: Record<SectionResourceKind, string> = {
   tools: "section_tools_inventory",
   decor: "section_decor_items",
   shotlist: "section_pdd_shotlist",
@@ -20,12 +28,108 @@ const TABLE_MAP: Record<SectionKind, string> = {
   guides: "event_technical_guides",
 };
 
+const ToolCreateSchema = z.object({
+  tool_name: z.string().trim().min(1).max(300),
+  quantity: z.number().int().min(1).max(100000).default(1),
+  source: z.enum(["IN_HOUSE", "RENTAL", "PURCHASE"]).default("IN_HOUSE"),
+  pic_user_id: z.string().uuid().nullable().optional(),
+  is_ready: z.boolean().default(false),
+  notes: z.string().max(1000).nullable().optional(),
+});
+
+const ToolPatchSchema = ToolCreateSchema.partial();
+
+const DecorCreateSchema = z.object({
+  item_name: z.string().trim().min(1).max(300),
+  estimated_cost: z.number().finite().min(0).max(100000000000).default(0),
+  actual_cost: z.number().finite().min(0).max(100000000000).default(0),
+  installation_status: z
+    .enum(["PLANNING", "IN_PROGRESS", "READY", "INSTALLED"])
+    .default("PLANNING"),
+  pic_user_id: z.string().uuid().nullable().optional(),
+  notes: z.string().max(1000).nullable().optional(),
+});
+
+const DecorPatchSchema = DecorCreateSchema.partial();
+
+const ShotlistCreateSchema = z.object({
+  scene_title: z.string().trim().min(1).max(300),
+  shot_type: z.enum(["PHOTO", "VIDEO", "REEL"]).default("PHOTO"),
+  camera_angle: z.string().max(500).nullable().optional(),
+  pic_user_id: z.string().uuid().nullable().optional(),
+  status: z.enum(["PENDING", "TAKEN", "EDITED"]).default("PENDING"),
+  drive_link: SafeHttpUrlSchema,
+});
+
+const ShotlistPatchSchema = ShotlistCreateSchema.partial();
+
+const ReferenceBaseSchema = z.object({
+  phase: TaskPhaseSchema.default("PRE_EVENT"),
+  title: z.string().trim().min(1).max(300),
+  url: SafeHttpUrlSchema,
+  drive_url: SafeHttpUrlSchema,
+  description: z.string().max(1000).nullable().optional(),
+});
+
+const ReferenceCreateSchema = ReferenceBaseSchema.refine(
+  (v) => Boolean((v.url && v.url.trim()) || (v.drive_url && v.drive_url.trim())),
+  "URL referensi wajib diisi"
+);
+
+const ReferencePatchSchema = ReferenceBaseSchema.partial();
+
+const GuideCreateSchema = z.object({
+  category: z.string().trim().min(1).max(100),
+  title: z.string().trim().min(1).max(300),
+  instructions_markdown: z.string().trim().min(1).max(5000),
+  layout_image_url: SafeHttpUrlSchema,
+  target_sections: z.array(SectionTypeSchema).min(1).default(["ACARA", "ALL"]),
+});
+
+const GuidePatchSchema = GuideCreateSchema.partial();
+
+function validateSectionPayload(
+  kind: SectionResourceKind,
+  body: Record<string, unknown>,
+  isPatch: boolean
+) {
+  if (kind === "tools") {
+    return (isPatch ? ToolPatchSchema : ToolCreateSchema).safeParse(body);
+  }
+  if (kind === "decor") {
+    return (isPatch ? DecorPatchSchema : DecorCreateSchema).safeParse(body);
+  }
+  if (kind === "shotlist") {
+    return (isPatch ? ShotlistPatchSchema : ShotlistCreateSchema).safeParse(body);
+  }
+  if (kind === "references") {
+    return (isPatch ? ReferencePatchSchema : ReferenceCreateSchema).safeParse(body);
+  }
+  return (isPatch ? GuidePatchSchema : GuideCreateSchema).safeParse(body);
+}
+
 export async function GET(
   _request: Request,
   context: { params: { id: string } }
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: access.error,
+        tools: [],
+        decor: [],
+        shotlist: [],
+        references: [],
+        guides: [],
+      },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
+
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
       { success: true, tools: [], decor: [], shotlist: [], references: [], guides: [] },
@@ -74,26 +178,33 @@ export async function POST(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
-  }
-
+  const eventId = context.params.id;
   try {
-    const body = await request.json();
-    const kind = body?.kind as SectionKind;
+    const body = (await request.json()) as Record<string, unknown>;
+    const kind = body?.kind as SectionResourceKind;
     const table = TABLE_MAP[kind];
     if (!table) {
       return NextResponse.json({ success: false, error: "Tipe section tidak valid" }, { status: 400 });
     }
 
-    const { kind: _k, id: _rawId, ...rest } = body as Record<string, unknown>;
-    void _k;
-    void _rawId;
+    const writeAuth = await requireSectionWriteAccess(eventId, kind);
+    if (!writeAuth.allowed) {
+      return NextResponse.json({ success: false, error: writeAuth.error }, { status: writeAuth.status });
+    }
+
+    const parsed = validateSectionPayload(kind, body, false);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message || "Data item section tidak valid" },
+        { status: 400 }
+      );
+    }
+
+    const cleanData = parsed.data as Record<string, unknown>;
 
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
-        { success: true, item: { id: `sec-${Date.now()}`, event_id: context.params.id, ...rest } },
+        { success: true, item: { id: `sec-${Date.now()}`, event_id: eventId, ...cleanData } },
         { status: 201 }
       );
     }
@@ -101,7 +212,7 @@ export async function POST(
     const supabase = createServerClient();
     const { data, error } = await supabase
       .from(table)
-      .insert({ ...rest, event_id: context.params.id })
+      .insert({ ...cleanData, event_id: eventId })
       .select("*")
       .single();
 
@@ -124,34 +235,44 @@ export async function PATCH(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
-  }
-
+  const eventId = context.params.id;
   try {
-    const body = await request.json();
-    const kind = body?.kind as SectionKind;
-    const itemId = body?.id as string;
+    const body = (await request.json()) as Record<string, unknown>;
+    const kind = body?.kind as SectionResourceKind;
+    const itemId = typeof body?.id === "string" ? body.id : "";
     const table = TABLE_MAP[kind];
     if (!table || !itemId) {
       return NextResponse.json({ success: false, error: "Parameter kind/id tidak valid" }, { status: 400 });
     }
 
-    const { kind: _k, id: _id, ...updates } = body as Record<string, unknown>;
-    void _k;
-    void _id;
+    const writeAuth = await requireSectionWriteAccess(eventId, kind);
+    if (!writeAuth.allowed) {
+      return NextResponse.json({ success: false, error: writeAuth.error }, { status: writeAuth.status });
+    }
+
+    const parsed = validateSectionPayload(kind, body, true);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message || "Data pembaruan tidak valid" },
+        { status: 400 }
+      );
+    }
+
+    const cleanUpdates = parsed.data as Record<string, unknown>;
+    if (Object.keys(cleanUpdates).length === 0) {
+      return NextResponse.json({ success: false, error: "Tidak ada field valid untuk diperbarui" }, { status: 400 });
+    }
 
     if (!isSupabaseConfigured()) {
-      return NextResponse.json({ success: true, item: { id: itemId, ...updates } });
+      return NextResponse.json({ success: true, item: { id: itemId, ...cleanUpdates } });
     }
 
     const supabase = createServerClient();
     const { data, error } = await supabase
       .from(table)
-      .update(updates)
+      .update(cleanUpdates)
       .eq("id", itemId)
-      .eq("event_id", context.params.id)
+      .eq("event_id", eventId)
       .select("*")
       .single();
 
@@ -171,17 +292,18 @@ export async function DELETE(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
-  }
-
+  const eventId = context.params.id;
   const url = new URL(request.url);
-  const kind = url.searchParams.get("kind") as SectionKind;
+  const kind = url.searchParams.get("kind") as SectionResourceKind;
   const itemId = url.searchParams.get("itemId");
   const table = TABLE_MAP[kind];
   if (!table || !itemId) {
     return NextResponse.json({ success: false, error: "Parameter kind/itemId tidak valid" }, { status: 400 });
+  }
+
+  const writeAuth = await requireSectionWriteAccess(eventId, kind);
+  if (!writeAuth.allowed) {
+    return NextResponse.json({ success: false, error: writeAuth.error }, { status: writeAuth.status });
   }
 
   if (!isSupabaseConfigured()) {
@@ -193,7 +315,7 @@ export async function DELETE(
     .from(table)
     .delete()
     .eq("id", itemId)
-    .eq("event_id", context.params.id);
+    .eq("event_id", eventId);
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

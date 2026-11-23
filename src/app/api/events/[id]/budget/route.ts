@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
+import { requireEventAccess } from "@/lib/auth/guards";
 import { CreateBudgetItemSchema, UpdateBudgetItemSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, items: [] },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ success: true, items: [] }, { headers: NO_CACHE_HEADERS });
   }
@@ -96,8 +104,15 @@ export async function POST(
     }
 
     const p = parsed.data;
-    const computedTotal = Math.max(0, (Number(p.quantity) || 1) * (Number(p.unit_price) || 0));
-    const estimated = p.estimated_amount !== undefined ? p.estimated_amount : computedTotal;
+    const qty = Number(p.quantity);
+    const unitPrice = Number(p.unit_price);
+    const computedTotal = Math.round(qty * unitPrice * 100) / 100;
+    const estimated =
+      unitPrice > 0
+        ? computedTotal
+        : p.estimated_amount !== undefined
+        ? Math.max(0, Number(p.estimated_amount))
+        : 0;
 
     const payload = {
       event_id: context.params.id,
@@ -105,13 +120,13 @@ export async function POST(
       budget_category: p.budget_category || p.section,
       item_name: p.item_name.trim(),
       required_date: p.required_date || null,
-      quantity: Number(p.quantity) || 1,
+      quantity: qty,
       uom: p.uom || "Set",
-      unit_price: Number(p.unit_price) || 0,
+      unit_price: unitPrice,
       estimated_amount: estimated,
-      actual_amount: Number(p.actual_amount) || 0,
+      actual_amount: Math.max(0, Number(p.actual_amount) || 0),
       budget_status: p.budget_status || "Planning",
-      receipt_photo_url: p.receipt_photo_url || null,
+      receipt_photo_url: p.receipt_photo_url?.trim() || null,
       notes: p.notes?.trim() || null,
     };
 
@@ -173,12 +188,40 @@ export async function PATCH(
     const { id, ...rest } = parsed.data;
     const qty = rest.quantity !== undefined ? Number(rest.quantity) : undefined;
     const unitPrice = rest.unit_price !== undefined ? Number(rest.unit_price) : undefined;
-    const estimated =
-      rest.estimated_amount !== undefined
-        ? rest.estimated_amount
-        : qty !== undefined && unitPrice !== undefined
-        ? qty * unitPrice
-        : undefined;
+
+    if (!isSupabaseConfigured()) {
+      const estimated =
+        qty !== undefined && unitPrice !== undefined && unitPrice > 0
+          ? Math.round(qty * unitPrice * 100) / 100
+          : rest.estimated_amount;
+      return NextResponse.json({
+        success: true,
+        item: {
+          id,
+          event_id: context.params.id,
+          ...rest,
+          ...(estimated !== undefined ? { estimated_amount: estimated } : {}),
+        },
+      });
+    }
+
+    const supabase = createServerClient();
+    let computedEstimated = rest.estimated_amount;
+
+    if (qty !== undefined || unitPrice !== undefined) {
+      const { data: currentRow } = await supabase
+        .from("event_budget_ledger")
+        .select("quantity, unit_price")
+        .eq("id", id)
+        .eq("event_id", context.params.id)
+        .maybeSingle();
+
+      const effectiveQty = qty ?? Number(currentRow?.quantity ?? 1);
+      const effectiveUnitPrice = unitPrice ?? Number(currentRow?.unit_price ?? 0);
+      if (effectiveUnitPrice > 0) {
+        computedEstimated = Math.round(effectiveQty * effectiveUnitPrice * 100) / 100;
+      }
+    }
 
     const updateFields: Record<string, unknown> = {
       ...(rest.section !== undefined ? { section: rest.section } : {}),
@@ -188,18 +231,13 @@ export async function PATCH(
       ...(qty !== undefined ? { quantity: qty } : {}),
       ...(rest.uom !== undefined ? { uom: rest.uom } : {}),
       ...(unitPrice !== undefined ? { unit_price: unitPrice } : {}),
-      ...(estimated !== undefined ? { estimated_amount: estimated } : {}),
-      ...(rest.actual_amount !== undefined ? { actual_amount: rest.actual_amount } : {}),
+      ...(computedEstimated !== undefined ? { estimated_amount: Math.max(0, computedEstimated) } : {}),
+      ...(rest.actual_amount !== undefined ? { actual_amount: Math.max(0, rest.actual_amount) } : {}),
       ...(rest.budget_status !== undefined ? { budget_status: rest.budget_status } : {}),
-      ...(rest.receipt_photo_url !== undefined ? { receipt_photo_url: rest.receipt_photo_url || null } : {}),
+      ...(rest.receipt_photo_url !== undefined ? { receipt_photo_url: rest.receipt_photo_url?.trim() || null } : {}),
       ...(rest.notes !== undefined ? { notes: rest.notes?.trim() || null } : {}),
     };
 
-    if (!isSupabaseConfigured()) {
-      return NextResponse.json({ success: true, item: { id, event_id: context.params.id, ...updateFields } });
-    }
-
-    const supabase = createServerClient();
     const { data, error } = await supabase
       .from("event_budget_ledger")
       .update(updateFields)

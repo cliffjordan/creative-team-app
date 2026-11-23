@@ -3,13 +3,14 @@ import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { hashPin, verifyPinHash } from "@/lib/auth/pin-hash";
 import { checkRateLimit, getClientIp } from "@/lib/auth/rate-limit";
+import { SafeNameSchema } from "@/lib/validators/schemas";
 import {
   signSessionToken,
   getSessionCookieOptions,
 } from "@/lib/auth/session";
 
 const RegisterUserSchema = z.object({
-  full_name: z.string().trim().min(2, "Nama lengkap minimal 2 karakter").max(120),
+  full_name: SafeNameSchema,
   phone: z.string().trim().min(8, "Nomor WhatsApp minimal 8 digit").max(25),
   email: z
     .string()
@@ -104,11 +105,12 @@ export async function POST(request: Request) {
 
     const { count } = await supabase
       .from("users")
-      .select("id", { count: "exact", head: true });
+      .select("id", { count: "exact", head: true })
+      .eq("is_superadmin", false);
 
     const isFirstUser = (count ?? 0) === 0;
     const effectiveRole = isFirstUser ? "CREATIVE_LEADER" : "MEMBER";
-    const isSuperadmin = isFirstUser;
+    const isSuperadmin = false;
     const defaultSection = isFirstUser ? "INTI" : null;
     const isRoleAssigned = isFirstUser;
 

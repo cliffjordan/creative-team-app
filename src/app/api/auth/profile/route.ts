@@ -7,12 +7,13 @@ import {
   getSessionCookieOptions,
 } from "@/lib/auth/session";
 import { hashPin, verifyPinHash } from "@/lib/auth/pin-hash";
+import { SafeHttpUrlSchema, SafeNameSchema } from "@/lib/validators/schemas";
 
 const UpdateProfileSchema = z.object({
-  full_name: z.string().trim().min(2, "Nama lengkap minimal 2 karakter").max(120),
+  full_name: SafeNameSchema,
   phone: z.string().trim().min(8, "Nomor WhatsApp minimal 8 digit").max(25),
   email: z.string().trim().email("Format email tidak valid").optional().or(z.literal("")),
-  avatar_url: z.string().trim().max(1000).nullable().optional(),
+  avatar_url: SafeHttpUrlSchema,
   current_pin: z.string().optional(),
   new_pin: z.string().optional(),
 });

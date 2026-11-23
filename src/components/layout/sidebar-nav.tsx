@@ -16,6 +16,7 @@ import {
   BookOpen,
   Users,
   User as UserIcon,
+  Shield,
   LogOut,
   LogIn,
 } from "lucide-react";
@@ -196,6 +197,15 @@ export function SidebarNav({
             <Presentation className="w-4 h-4 text-slate-400 shrink-0" />
             <span className="truncate">Cue Cards MC</span>
           </Link>
+          {currentUser?.is_superadmin && (
+            <Link
+              href="/superadmin"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 transition-all mt-1"
+            >
+              <Shield className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span className="truncate">Server Maintenance</span>
+            </Link>
+          )}
         </div>
       </nav>
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getServerSession } from "@/lib/auth/session";
+import { requireEventAccess } from "@/lib/auth/guards";
 import { SaveDocumentSchema } from "@/lib/validators/schemas";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,13 @@ export async function GET(
 ) {
   noStore();
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { success: false, error: access.error, exists: false, document: null },
+      { status: access.status, headers: NO_CACHE_HEADERS }
+    );
+  }
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
       { success: true, exists: false, document: null },
@@ -64,12 +71,13 @@ export async function PATCH(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session) {
-    return NextResponse.json({ success: false, error: "Sesi tidak ditemukan. Silakan login." }, { status: 401 });
-  }
-
   const eventId = context.params.id;
+  const access = await requireEventAccess(eventId);
+  if (!access.allowed) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+  }
+  const session = access.session;
+
   try {
     const body = await request.json();
     const parsed = SaveDocumentSchema.safeParse(body);
@@ -119,7 +127,7 @@ export async function PATCH(
     const isUnassigned =
       !actor.is_superadmin &&
       actor.base_role === "MEMBER" &&
-      (!actor.is_role_assigned || (!actor.is_role_assigned && !actor.default_section));
+      !actor.is_role_assigned;
 
     if (isUnassigned) {
       return NextResponse.json(

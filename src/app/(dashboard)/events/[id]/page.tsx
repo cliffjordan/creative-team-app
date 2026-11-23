@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getEventDetailAction } from "@/features/events/actions/event-actions";
+import { DeleteEventButton } from "@/features/events/delete-event-button";
 import { RosterManagerView } from "@/features/roster/roster-manager-view";
 import type { EventStatus } from "@/types/domain";
 
@@ -85,6 +86,12 @@ export default async function EventDetailPage({
                 Workspace Utama
               </Button>
             </Link>
+            <DeleteEventButton
+              eventId={event.id}
+              eventTitle={event.title}
+              status={event.status}
+              redirectOnDelete="/events"
+            />
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Sparkles, Clock, UserCheck, Lock, Users } from "lucide-react";
@@ -24,11 +24,19 @@ interface CreateEventFormProps {
 
 export function CreateEventForm({ users }: CreateEventFormProps) {
   const router = useRouter();
-  const { currentUser, isLoading } = useAuth();
+  const { currentUser, users: authUsers, refreshUsers, isLoading } = useAuth();
   const [storedUser, setStoredUser] = useState<User | null>(null);
   const effectiveUser = currentUser ?? storedUser;
 
-  const availableUsers = users.length > 0 ? users : INITIAL_USERS;
+  const availableUsers = useMemo(() => {
+    const liveOps = authUsers.filter((u) => !u.is_superadmin);
+    if (liveOps.length > 0) return liveOps;
+    const propOps = users.filter(
+      (u) => !(u as Partial<User>).is_superadmin
+    );
+    if (propOps.length > 0) return propOps;
+    return INITIAL_USERS.filter((u) => !u.is_superadmin);
+  }, [authUsers, users]);
 
   const [title, setTitle] = useState("");
   const [theme, setTheme] = useState("");
@@ -51,7 +59,15 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
     } catch {
       // ignore
     }
+    void refreshUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!eventLeaderId && availableUsers.length > 0) {
+      setEventLeaderId(availableUsers[0].id);
+    }
+  }, [availableUsers, eventLeaderId]);
 
   const selectedSectionLeaderIds = [
     acaraLeaderId,

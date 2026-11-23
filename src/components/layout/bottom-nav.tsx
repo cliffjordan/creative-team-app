@@ -17,6 +17,7 @@ import {
   Presentation,
   Users,
   User as UserIcon,
+  Shield,
   X,
   LogOut,
   LogIn,
@@ -327,6 +328,16 @@ export function BottomNav({
                   <Presentation className="w-4 h-4 text-slate-500 shrink-0" />
                   <span className="truncate">Cue Cards MC</span>
                 </Link>
+                {currentUser?.is_superadmin && (
+                  <Link
+                    href="/superadmin"
+                    onClick={() => setIsDrawerOpen(false)}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-200 hover:bg-indigo-100 transition"
+                  >
+                    <Shield className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="truncate">Server Maintenance</span>
+                  </Link>
+                )}
               </div>
             </div>
           </div>
