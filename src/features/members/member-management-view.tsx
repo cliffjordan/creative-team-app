@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { SectionType, User, UserBaseRole } from "@/types/domain";
-import { isCreativeLeader, isUnassignedMember } from "@/lib/mock-db";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { OperationRecord, User, UserBaseRole } from "@/types/domain";
+import { isCreativeLeader, isSuperAdmin, isUnassignedMember } from "@/lib/mock-db";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
+  Activity,
   AlertTriangle,
   CheckCircle2,
   KeyRound,
   Lock,
   Plus,
+  RefreshCw,
   Search,
+  Shield,
   ShieldCheck,
   Trash2,
   UserCheck,
@@ -26,7 +29,7 @@ interface MemberManagementViewProps {
   onRefreshUsers: () => Promise<unknown>;
 }
 
-const ROLE_OPTIONS: { value: UserBaseRole; label: string }[] = [
+const ALL_ROLE_OPTIONS: { value: UserBaseRole; label: string }[] = [
   { value: "CREATIVE_LEADER", label: "Creative Leader" },
   { value: "WAKIL_LEADER", label: "Wakil Leader" },
   { value: "SEKRETARIS", label: "Sekretaris" },
@@ -35,15 +38,9 @@ const ROLE_OPTIONS: { value: UserBaseRole; label: string }[] = [
   { value: "MEMBER", label: "Member / Anggota" },
 ];
 
-const SECTION_OPTIONS: { value: SectionType | ""; label: string }[] = [
-  { value: "", label: "Belum Ditentukan" },
-  { value: "INTI", label: "Inti (Leader / Sek / Bend)" },
-  { value: "ACARA", label: "Seksi Acara" },
-  { value: "DEKORASI", label: "Seksi Dekorasi" },
-  { value: "PERLENGKAPAN", label: "Seksi Perlengkapan" },
-  { value: "PDD", label: "Seksi PDD" },
-  { value: "ALL", label: "Semua Seksi" },
-];
+const NON_SUPER_ROLE_OPTIONS = ALL_ROLE_OPTIONS.filter(
+  (r) => r.value !== "CREATIVE_LEADER"
+);
 
 export function MemberManagementView({
   users,
@@ -51,11 +48,17 @@ export function MemberManagementView({
   onRefreshUsers,
 }: MemberManagementViewProps) {
   const canManage = isCreativeLeader(currentUser);
+  const isSuper = isSuperAdmin(currentUser);
+  const assignableRoleOptions = isSuper ? ALL_ROLE_OPTIONS : NON_SUPER_ROLE_OPTIONS;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<"ALL" | "PENDING" | "ASSIGNED">("ALL");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Superadmin Audit Logs State
+  const [auditLogs, setAuditLogs] = useState<OperationRecord[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
 
   // Add Member Modal State
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -63,13 +66,37 @@ export function MemberManagementView({
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<UserBaseRole>("MEMBER");
-  const [newSection, setNewSection] = useState<SectionType | "">("ACARA");
+  const [newIsSuperadmin, setNewIsSuperadmin] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Reset PIN Modal State
   const [pinTargetUser, setPinTargetUser] = useState<User | null>(null);
   const [resetPinValue, setResetPinValue] = useState("");
+
+  const fetchAuditLogs = useCallback(async () => {
+    if (!isSuper) return;
+    setLoadingAudit(true);
+    try {
+      const res = await fetch("/api/audit-logs", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.logs)) {
+          setAuditLogs(data.logs);
+        }
+      }
+    } catch {
+      // ignore network error
+    } finally {
+      setLoadingAudit(false);
+    }
+  }, [isSuper]);
+
+  useEffect(() => {
+    if (isSuper) {
+      fetchAuditLogs();
+    }
+  }, [isSuper, fetchAuditLogs]);
 
   const pendingCount = useMemo(
     () => users.filter((u) => isUnassignedMember(u)).length,
@@ -85,8 +112,7 @@ export function MemberManagementView({
       return (
         u.full_name.toLowerCase().includes(q) ||
         (u.phone || "").toLowerCase().includes(q) ||
-        u.base_role.toLowerCase().includes(q) ||
-        (u.default_section || "").toLowerCase().includes(q)
+        u.base_role.toLowerCase().includes(q)
       );
     });
   }, [users, searchQuery, filterMode]);
@@ -96,38 +122,56 @@ export function MemberManagementView({
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const handleUpdateRoleSection = async (
+  const handleUpdateRole = async (
     targetUser: User,
-    nextRole: UserBaseRole,
-    nextSection: SectionType | null
+    nextRole: UserBaseRole
   ) => {
     setBusyUserId(targetUser.id);
     try {
-      const resolvedSection =
-        nextSection ||
-        (nextRole === "CREATIVE_LEADER" ||
-        nextRole === "WAKIL_LEADER" ||
-        nextRole === "SEKRETARIS" ||
-        nextRole === "BENDAHARA"
-          ? "INTI"
-          : null);
-
       const res = await fetch(`/api/auth/users/${targetUser.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           base_role: nextRole,
-          default_section: resolvedSection,
-          is_role_assigned: nextRole !== "MEMBER" || Boolean(resolvedSection),
-          is_superadmin: nextRole === "CREATIVE_LEADER",
+          default_section: null,
+          is_role_assigned: true,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        showNotice("error", data.error || "Gagal memperbarui role member.");
+        showNotice("error", data.error || "Gagal memperbarui jabatan inti member.");
       } else {
         await onRefreshUsers();
-        showNotice("success", `Role & divisi untuk ${targetUser.full_name} berhasil diperbarui.`);
+        if (isSuper) fetchAuditLogs();
+        showNotice("success", `Jabatan inti untuk ${targetUser.full_name} berhasil diperbarui.`);
+      }
+    } catch {
+      showNotice("error", "Gagal terhubung ke server.");
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
+  const handleToggleSuperadmin = async (targetUser: User) => {
+    if (!isSuper) return;
+    setBusyUserId(targetUser.id);
+    try {
+      const nextSuper = !Boolean(targetUser.is_superadmin);
+      const res = await fetch(`/api/auth/users/${targetUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_superadmin: nextSuper }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showNotice("error", data.error || "Gagal mengubah status Superadmin.");
+      } else {
+        await onRefreshUsers();
+        fetchAuditLogs();
+        showNotice(
+          "success",
+          `${targetUser.full_name} ${nextSuper ? "ditunjuk sebagai" : "dicabut dari"} Superadmin.`
+        );
       }
     } catch {
       showNotice("error", "Gagal terhubung ke server.");
@@ -152,8 +196,9 @@ export function MemberManagementView({
           phone: newPhone.trim(),
           email: newEmail.trim(),
           base_role: newRole,
-          default_section: newSection || null,
-          is_role_assigned: newRole !== "MEMBER" || Boolean(newSection),
+          default_section: null,
+          is_role_assigned: true,
+          is_superadmin: isSuper ? newIsSuperadmin : false,
           pin: newPin,
         }),
       });
@@ -162,10 +207,13 @@ export function MemberManagementView({
         showNotice("error", data.error || "Gagal menambah member baru.");
       } else {
         await onRefreshUsers();
+        if (isSuper) fetchAuditLogs();
         setIsAddOpen(false);
         setNewFullName("");
         setNewPhone("");
         setNewEmail("");
+        setNewRole("MEMBER");
+        setNewIsSuperadmin(false);
         setNewPin("");
         showNotice("success", "Akun member baru berhasil ditambahkan.");
       }
@@ -255,7 +303,7 @@ export function MemberManagementView({
             <span>Manajemen Member &amp; Role Tim</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Tetapkan jabatan, divisi section, reset PIN, dan kelola seluruh anggota terdaftar.
+            Tetapkan jabatan inti tim, reset PIN, dan kelola akun anggota terdaftar. Penempatan section diatur per event.
           </p>
         </div>
 
@@ -363,6 +411,8 @@ export function MemberManagementView({
             const isPending = isUnassignedMember(member);
             const isSelf = member.id === currentUser?.id;
             const busy = busyUserId === member.id;
+            const isProtectedFromLeader =
+              !isSuper && (member.is_superadmin || member.base_role === "CREATIVE_LEADER");
 
             return (
               <Card
@@ -379,8 +429,14 @@ export function MemberManagementView({
                       <h3 className="text-sm font-extrabold text-slate-900 truncate">
                         {member.full_name}
                       </h3>
+                      {member.is_superadmin && (
+                        <Badge variant="purple" className="text-[10px] gap-1">
+                          <Shield className="w-3 h-3" />
+                          Superadmin
+                        </Badge>
+                      )}
                       {isSelf && (
-                        <Badge variant="purple" className="text-[10px]">
+                        <Badge variant="neutral" className="text-[10px]">
                           Anda
                         </Badge>
                       )}
@@ -400,52 +456,53 @@ export function MemberManagementView({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        setPinTargetUser(member);
-                        setResetPinValue("");
-                      }}
-                      title="Reset PIN 4 Digit"
-                      className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 border border-slate-200 transition"
-                    >
-                      <KeyRound className="w-3.5 h-3.5" />
-                    </button>
-                    {!isSelf && (
+                  {!isProtectedFromLeader && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => handleDeleteUser(member)}
-                        title="Hapus Anggota"
-                        className="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 transition"
+                        onClick={() => {
+                          setPinTargetUser(member);
+                          setResetPinValue("");
+                        }}
+                        title="Reset PIN 4 Digit"
+                        className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 border border-slate-200 transition"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <KeyRound className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                  </div>
+                      {!isSelf && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleDeleteUser(member)}
+                          title="Hapus Anggota"
+                          className="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Role & Section Selector */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-slate-100">
-                  <div>
+                {/* Jabatan Inti Selector (Tanpa Section Global) */}
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-end justify-between gap-2.5">
+                  <div className="flex-1">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                      Jabatan / Base Role
+                      Jabatan Inti / Base Role
                     </label>
                     <select
-                      disabled={busy}
+                      disabled={busy || isProtectedFromLeader}
                       value={member.base_role}
                       onChange={(e) =>
-                        handleUpdateRoleSection(
+                        handleUpdateRole(
                           member,
-                          e.target.value as UserBaseRole,
-                          (member.default_section || null) as SectionType | null
+                          e.target.value as UserBaseRole
                         )
                       }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                     >
-                      {ROLE_OPTIONS.map((opt) => (
+                      {(isSuper || isProtectedFromLeader ? ALL_ROLE_OPTIONS : assignableRoleOptions).map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
                         </option>
@@ -453,29 +510,19 @@ export function MemberManagementView({
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                      Divisi / Section Default
-                    </label>
-                    <select
+                  {isSuper && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={member.is_superadmin ? "primary" : "outline"}
                       disabled={busy}
-                      value={member.default_section || ""}
-                      onChange={(e) =>
-                        handleUpdateRoleSection(
-                          member,
-                          member.base_role,
-                          (e.target.value || null) as SectionType | null
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none"
+                      onClick={() => handleToggleSuperadmin(member)}
+                      className="text-[11px] font-bold gap-1 shrink-0"
                     >
-                      {SECTION_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>{member.is_superadmin ? "Cabut Superadmin" : "Jadikan Superadmin"}</span>
+                    </Button>
+                  )}
                 </div>
               </Card>
             );
@@ -483,12 +530,81 @@ export function MemberManagementView({
         )}
       </div>
 
+      {/* System Audit Trail (Superadmin Only) */}
+      {isSuper && (
+        <Card className="p-4 sm:p-5 border-indigo-200 bg-slate-50/70 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-indigo-600" />
+                <span>System Audit Trail (Superadmin)</span>
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Jejak aktivitas otoritas tertinggi, manajemen akun, &amp; operasi sistem.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={fetchAuditLogs}
+              disabled={loadingAudit}
+              className="text-xs font-semibold gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingAudit ? "animate-spin" : ""}`} />
+              <span>Muat Ulang Log</span>
+            </Button>
+          </div>
+
+          {auditLogs.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 text-center text-xs text-slate-400">
+              {loadingAudit
+                ? "Memuat riwayat audit sistem..."
+                : "Belum ada catatan audit operasi tercatat."}
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {auditLogs.map((log) => (
+                <div
+                  key={log.operation_id}
+                  className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="purple" className="text-[10px]">
+                        {log.action_type}
+                      </Badge>
+                      <span className="text-xs font-bold text-slate-800 truncate">
+                        {log.actor?.full_name || "Sistem"}
+                      </span>
+                    </div>
+                    {log.details && Object.keys(log.details).length > 0 && (
+                      <p className="text-[11px] text-slate-500 mt-1 truncate">
+                        {String(log.details.target_name || "")}
+                        {log.details.new_role ? ` → ${String(log.details.new_role)}` : ""}
+                        {log.details.pin_reset ? " (PIN direset)" : ""}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                    {new Date(log.created_at).toLocaleString("id-ID", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Add Member Modal */}
       <Modal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
         title="Tambah Member Baru"
-        description="Buat akun anggota langsung dengan role, divisi, dan PIN awal."
+        description="Buat akun anggota dengan jabatan inti dan PIN awal (penempatan section diatur per event)."
       >
         <form onSubmit={handleCreateMember} className="space-y-3.5">
           <div>
@@ -533,39 +649,35 @@ export function MemberManagementView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Jabatan / Role *
+                Jabatan Inti / Role *
               </label>
               <select
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value as UserBaseRole)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
               >
-                {ROLE_OPTIONS.map((opt) => (
+                {assignableRoleOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Divisi / Section
+
+            {isSuper && (
+              <label className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 py-2 text-xs font-semibold text-indigo-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newIsSuperadmin}
+                  onChange={(e) => setNewIsSuperadmin(e.target.checked)}
+                  className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>Berikan hak Superadmin (otoritas tertinggi &amp; audit log)</span>
               </label>
-              <select
-                value={newSection}
-                onChange={(e) => setNewSection(e.target.value as SectionType | "")}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
-              >
-                {SECTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            )}
           </div>
 
           <div>

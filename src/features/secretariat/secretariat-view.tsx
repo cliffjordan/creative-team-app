@@ -81,6 +81,8 @@ export function SecretariatView({
   const [ministers, setMinisters] = useState<EventMinisterRow[]>([]);
   const [savingCommittee, setSavingCommittee] = useState(false);
   const [savingMinisters, setSavingMinisters] = useState(false);
+  const [savedCommitteeBadge, setSavedCommitteeBadge] = useState(false);
+  const [savedMinistersBadge, setSavedMinistersBadge] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const committeeStorageKey = `CT_SECRETARIAT_COMMITTEE_${activeEvent.id}`;
@@ -118,7 +120,7 @@ export function SecretariatView({
     const unsub = subscribeSyncMessages((msg) => {
       if (msg.key === "CT_SECRETARIAT_COMMITTEE" && Array.isArray(msg.payload)) {
         const list = (msg.payload as EventCommitteeMember[]).filter(
-          (r) => r.event_id === activeEvent.id
+          (r) => (r.event_id || activeEvent.id) === activeEvent.id
         );
         if (list.length > 0 || (msg.payload as EventCommitteeMember[]).length === 0) {
           setCommittee(list);
@@ -126,7 +128,7 @@ export function SecretariatView({
       }
       if (msg.key === "CT_SECRETARIAT_MINISTERS" && Array.isArray(msg.payload)) {
         const list = (msg.payload as EventMinisterRow[]).filter(
-          (r) => r.event_id === activeEvent.id
+          (r) => (r.event_id || activeEvent.id) === activeEvent.id
         );
         if (list.length > 0 || (msg.payload as EventMinisterRow[]).length === 0) {
           setMinisters(list);
@@ -162,10 +164,11 @@ export function SecretariatView({
   const handleSaveCommittee = async () => {
     if (!canEdit || !activeEvent.id) return;
     setSavingCommittee(true);
-    const sanitized = committee
-      .filter((r) => r.position_name.trim() && r.pic_name.trim())
+    const sanitized: EventCommitteeMember[] = committee
+      .filter((r) => r.position_name.trim().length > 0)
       .map((r, idx) => ({
         ...r,
+        event_id: activeEvent.id,
         order_index: idx,
         position_name: r.position_name.trim(),
         pic_name: r.pic_name.trim(),
@@ -179,13 +182,26 @@ export function SecretariatView({
         body: JSON.stringify({ kind: "committee", rows: sanitized }),
       });
       const data = await res.json();
-      const finalRows = data?.success && Array.isArray(data.committee) ? data.committee : sanitized;
+      if (!res.ok || !data?.success) {
+        setCommittee(sanitized);
+        showToast(data?.error || "Gagal menyimpan Struktur Panitia.");
+        return;
+      }
+      const rawFinal = Array.isArray(data.committee)
+        ? (data.committee as EventCommitteeMember[])
+        : sanitized;
+      const finalRows = rawFinal.map((r) => ({ ...r, event_id: activeEvent.id }));
       setCommittee(finalRows);
       try {
         localStorage.setItem(committeeStorageKey, JSON.stringify(finalRows));
         publishSyncMessage("CT_SECRETARIAT_COMMITTEE", finalRows);
       } catch {}
+      setSavedCommitteeBadge(true);
+      setTimeout(() => setSavedCommitteeBadge(false), 3000);
       showToast("Struktur Panitia disimpan & otomatis tersinkron ke Dokumen Project Brief.");
+    } catch {
+      setCommittee(sanitized);
+      showToast("Koneksi gagal; perubahan tetap dipertahankan di layar.");
     } finally {
       setSavingCommittee(false);
     }
@@ -207,10 +223,11 @@ export function SecretariatView({
   const handleSaveMinisters = async () => {
     if (!canEdit || !activeEvent.id) return;
     setSavingMinisters(true);
-    const sanitized = ministers
-      .filter((r) => r.ministry_role.trim() && r.minister_names.trim())
+    const sanitized: EventMinisterRow[] = ministers
+      .filter((r) => r.ministry_role.trim().length > 0)
       .map((r, idx) => ({
         ...r,
+        event_id: activeEvent.id,
         order_index: idx,
         ministry_role: r.ministry_role.trim(),
         minister_names: r.minister_names.trim(),
@@ -224,13 +241,26 @@ export function SecretariatView({
         body: JSON.stringify({ kind: "ministers", rows: sanitized }),
       });
       const data = await res.json();
-      const finalRows = data?.success && Array.isArray(data.ministers) ? data.ministers : sanitized;
+      if (!res.ok || !data?.success) {
+        setMinisters(sanitized);
+        showToast(data?.error || "Gagal menyimpan Daftar Pelayan.");
+        return;
+      }
+      const rawFinal = Array.isArray(data.ministers)
+        ? (data.ministers as EventMinisterRow[])
+        : sanitized;
+      const finalRows = rawFinal.map((r) => ({ ...r, event_id: activeEvent.id }));
       setMinisters(finalRows);
       try {
         localStorage.setItem(ministersStorageKey, JSON.stringify(finalRows));
         publishSyncMessage("CT_SECRETARIAT_MINISTERS", finalRows);
       } catch {}
+      setSavedMinistersBadge(true);
+      setTimeout(() => setSavedMinistersBadge(false), 3000);
       showToast("Struktur Pelayan disimpan & otomatis tersinkron ke Dokumen Project Brief.");
+    } catch {
+      setMinisters(sanitized);
+      showToast("Koneksi gagal; perubahan tetap dipertahankan di layar.");
     } finally {
       setSavingMinisters(false);
     }
@@ -395,7 +425,7 @@ export function SecretariatView({
                     className="text-xs gap-1.5"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    <span>{savingCommittee ? "Menyimpan..." : "Simpan Struktur"}</span>
+                    <span>{savingCommittee ? "Menyimpan..." : savedCommitteeBadge ? "Tersimpan ✓" : "Simpan Struktur"}</span>
                   </Button>
                 </div>
               )}
@@ -589,7 +619,7 @@ export function SecretariatView({
                     className="text-xs gap-1.5"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    <span>{savingMinisters ? "Menyimpan..." : "Simpan Daftar Pelayan"}</span>
+                    <span>{savingMinisters ? "Menyimpan..." : savedMinistersBadge ? "Tersimpan ✓" : "Simpan Daftar Pelayan"}</span>
                   </Button>
                 </div>
               )}

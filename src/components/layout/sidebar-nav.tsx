@@ -35,6 +35,7 @@ interface SidebarNavProps {
   activeTab: TabType;
   onChangeTab: (tab: TabType) => void;
   openIncidentsCount?: number;
+  pendingMyTaskCount?: number;
   currentUser?: User | null;
   activeEvent?: Event | null;
   onOpenLogin?: () => void;
@@ -45,6 +46,7 @@ export function SidebarNav({
   activeTab,
   onChangeTab,
   openIncidentsCount = 0,
+  pendingMyTaskCount = 0,
   currentUser,
   activeEvent,
   onOpenLogin,
@@ -72,7 +74,12 @@ export function SidebarNav({
           },
         ]
       : []),
-    { id: "timeline", label: "Tasks & Timeline", icon: CheckSquare },
+    {
+      id: "timeline",
+      label: "Tasks & Timeline",
+      icon: CheckSquare,
+      badge: pendingMyTaskCount,
+    },
     { id: "calendar", label: "Calendar & Schedule", icon: Calendar },
     ...(!unassigned ? [{ id: "sections" as TabType, label: "Sections & Tools", icon: Layers }] : []),
     ...(getFinanceAccessMode(currentUser ?? null) !== "LOCKED"
@@ -154,7 +161,14 @@ export function SidebarNav({
                 </span>
               )}
               {item.badge !== undefined && item.badge > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full text-[11px] font-bold",
+                    item.id === "timeline"
+                      ? "bg-indigo-100 text-indigo-700"
+                      : "bg-rose-100 text-rose-700"
+                  )}
+                >
                   {item.badge}
                 </span>
               )}

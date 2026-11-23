@@ -12,6 +12,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   setCurrentUserDirect: (user: User | null) => void;
   refreshUsers: () => Promise<User[]>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -46,6 +47,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     return users;
   }, [users]);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const [usersRes, meRes] = await Promise.all([
+        fetch("/api/auth/users", { cache: "no-store" }),
+        fetch("/api/auth/me", { cache: "no-store" }),
+      ]);
+      let latestUsers: User[] = [];
+      if (usersRes.ok) {
+        const usersJson = await usersRes.json();
+        if (Array.isArray(usersJson.users)) {
+          latestUsers = usersJson.users as User[];
+          setUsers(latestUsers);
+        }
+      }
+      if (meRes.ok) {
+        const data = await meRes.json();
+        if (data.authenticated && data.user) {
+          const matched = latestUsers.find((u) => u.id === data.user.id);
+          const resolvedUser: User = matched
+            ? { ...matched }
+            : {
+                ...data.user,
+                failed_pin_attempts: 0,
+                created_at: new Date().toISOString(),
+              };
+          setCurrentUser(resolvedUser);
+          try {
+            localStorage.setItem("CT_CURRENT_USER", JSON.stringify(resolvedUser));
+          } catch {}
+        }
+      }
+    } catch {
+      // ignore network error during background refresh
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -125,11 +162,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     loadSession();
+
+    let lastRefreshAt = Date.now();
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastRefreshAt < 4000) return;
+      lastRefreshAt = now;
+      void refreshSession();
+    };
+    window.addEventListener("focus", handleFocusOrVisible);
+    document.addEventListener("visibilitychange", handleFocusOrVisible);
+
     return () => {
       active = false;
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocusOrVisible);
+      document.removeEventListener("visibilitychange", handleFocusOrVisible);
     };
-  }, []);
+  }, [refreshSession]);
 
   const loginWithPin = useCallback(async (userId: string, pin: string) => {
     try {
@@ -187,6 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         setCurrentUserDirect,
         refreshUsers,
+        refreshSession,
       }}
     >
       {children}

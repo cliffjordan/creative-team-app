@@ -24,6 +24,7 @@ const CreateMemberSchema = z.object({
   base_role: UserBaseRoleSchema.default("MEMBER"),
   default_section: SectionTypeSchema.nullable().optional(),
   is_role_assigned: z.boolean().optional().default(true),
+  is_superadmin: z.boolean().optional().default(false),
   pin: z.string().length(4, "PIN harus 4 digit").regex(/^\d{4}$/, "PIN harus 4 digit angka"),
 });
 
@@ -84,17 +85,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const { full_name, phone, email, base_role, default_section, is_role_assigned, pin } = parsed.data;
+    const { full_name, phone, email, base_role, default_section, is_role_assigned, is_superadmin, pin } = parsed.data;
     const normalizedEmail = email && email.trim().length > 0 ? email.trim().toLowerCase() : null;
-    const isSuper = base_role === "CREATIVE_LEADER";
+    const isSuper = Boolean(is_superadmin);
     const resolvedSection =
-      default_section && default_section !== "ALL"
-        ? default_section
-        : base_role === "CREATIVE_LEADER" || base_role === "WAKIL_LEADER" || base_role === "SEKRETARIS" || base_role === "BENDAHARA"
-        ? "INTI"
-        : null;
+      default_section && default_section !== "ALL" ? default_section : null;
 
     if (!isSupabaseConfigured()) {
+      if ((base_role === "CREATIVE_LEADER" || isSuper) && !session.isSuperadmin) {
+        return NextResponse.json(
+          { success: false, error: "Hanya Superadmin yang berhak menambah akun Creative Leader atau Superadmin." },
+          { status: 403 }
+        );
+      }
       return NextResponse.json(
         {
           success: true,
@@ -105,7 +108,7 @@ export async function POST(request: Request) {
             email: normalizedEmail,
             base_role,
             default_section: resolvedSection,
-            is_role_assigned,
+            is_role_assigned: is_role_assigned ?? true,
             is_superadmin: isSuper,
             failed_pin_attempts: 0,
             created_at: new Date().toISOString(),
@@ -124,7 +127,14 @@ export async function POST(request: Request) {
 
     if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
       return NextResponse.json(
-        { success: false, error: "Hanya Creative Leader yang dapat menambah anggota." },
+        { success: false, error: "Hanya Creative Leader atau Superadmin yang dapat menambah anggota." },
+        { status: 403 }
+      );
+    }
+
+    if ((base_role === "CREATIVE_LEADER" || isSuper) && !actor.is_superadmin) {
+      return NextResponse.json(
+        { success: false, error: "Hanya Superadmin yang berhak membuat akun Creative Leader atau Superadmin." },
         { status: 403 }
       );
     }
@@ -149,7 +159,7 @@ export async function POST(request: Request) {
         pin_hash: hashPin(pin),
         base_role,
         default_section: resolvedSection,
-        is_role_assigned,
+        is_role_assigned: is_role_assigned ?? true,
         is_superadmin: isSuper,
         failed_pin_attempts: 0,
       })
@@ -161,6 +171,23 @@ export async function POST(request: Request) {
         { success: false, error: insertError?.message || "Gagal menambahkan anggota" },
         { status: 500 }
       );
+    }
+
+    try {
+      await supabase.from("operation_records").insert({
+        operation_id: crypto.randomUUID(),
+        event_id: null,
+        action_type: "USER_CREATED",
+        actor_id: session.userId,
+        details: {
+          target_user_id: created.id,
+          target_name: created.full_name,
+          base_role: created.base_role,
+          is_superadmin: created.is_superadmin,
+        },
+      });
+    } catch {
+      // Ignore audit log error before migration_v3 is applied
     }
 
     return NextResponse.json({ success: true, user: created }, { status: 201 });

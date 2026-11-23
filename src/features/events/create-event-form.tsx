@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Sparkles, Clock, UserCheck, Lock } from "lucide-react";
+import { ArrowLeft, Calendar, Sparkles, Clock, UserCheck, Lock, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/auth-provider";
@@ -34,6 +34,10 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
   const [theme, setTheme] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventLeaderId, setEventLeaderId] = useState(availableUsers[0]?.id ?? "");
+  const [acaraLeaderId, setAcaraLeaderId] = useState("");
+  const [dekorasiLeaderId, setDekorasiLeaderId] = useState("");
+  const [perlengkapanLeaderId, setPerlengkapanLeaderId] = useState("");
+  const [pddLeaderId, setPddLeaderId] = useState("");
   const [timeTolerance, setTimeTolerance] = useState(60);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -49,15 +53,38 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
     }
   }, []);
 
+  const selectedSectionLeaderIds = [
+    acaraLeaderId,
+    dekorasiLeaderId,
+    perlengkapanLeaderId,
+    pddLeaderId,
+  ].filter(Boolean);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!acaraLeaderId || !dekorasiLeaderId || !perlengkapanLeaderId || !pddLeaderId) {
+      setError("Wajib memilih lengkap 4 Section Leader (Acara, Dekorasi, Perlengkapan, dan PDD).");
+      return;
+    }
+
+    if (new Set([acaraLeaderId, dekorasiLeaderId, perlengkapanLeaderId, pddLeaderId]).size !== 4) {
+      setError("Keempat Section Leader harus orang yang berbeda (1 orang maksimal 1 section per event).");
+      return;
+    }
 
     const payload = {
       title: title.trim(),
       theme: theme.trim(),
       event_date: eventDate,
       event_leader_id: eventLeaderId,
+      section_leaders: {
+        ACARA: acaraLeaderId,
+        DEKORASI: dekorasiLeaderId,
+        PERLENGKAPAN: perlengkapanLeaderId,
+        PDD: pddLeaderId,
+      },
       time_tolerance_seconds: Number(timeTolerance),
     };
 
@@ -93,20 +120,13 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
       const currentRoster = savedRoster
         ? (JSON.parse(savedRoster) as EventRosterMember[])
         : INITIAL_ROSTER;
-      const newRosterEntry: EventRosterMember = {
-        id:
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `ros-${Date.now()}`,
-        event_id: createdEvent.id,
-        user_id: parsed.data.event_leader_id,
-        section: "INTI",
-        role_in_event: "EVENT_LEADER",
-        is_co_controller: false,
-      };
-      const nextRoster = [newRosterEntry, ...currentRoster];
-      localStorage.setItem("CT_ROSTER", JSON.stringify(nextRoster));
-      publishSyncMessage("CT_ROSTER", nextRoster);
+      const newEntries = res.roster ?? [];
+      const mergedRoster = [
+        ...newEntries,
+        ...currentRoster.filter((r) => r.event_id !== createdEvent.id),
+      ];
+      localStorage.setItem("CT_ROSTER", JSON.stringify(mergedRoster));
+      publishSyncMessage("CT_ROSTER", mergedRoster);
     } catch {
       // ignore localStorage sync errors
     }
@@ -146,6 +166,34 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
     );
   }
 
+  const renderSectionLeaderSelect = (
+    label: string,
+    value: string,
+    onChange: (val: string) => void
+  ) => (
+    <div>
+      <label className="mb-1 block text-xs font-bold text-slate-700">{label} *</label>
+      <select
+        required
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+      >
+        <option value="">-- Pilih Section Leader --</option>
+        {availableUsers.map((u) => {
+          const pickedElsewhere =
+            selectedSectionLeaderIds.includes(u.id) && value !== u.id;
+          return (
+            <option key={u.id} value={u.id} disabled={pickedElsewhere}>
+              {u.full_name} ({u.base_role})
+              {pickedElsewhere ? " — sudah di divisi lain" : ""}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center gap-3">
@@ -162,7 +210,7 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">Buat Event Baru</h1>
           <p className="text-xs text-slate-500">
-            Inisialisasi event, tentukan Event Leader, dan atur toleransi rundown.
+            Wajib menunjuk 1 Event Leader dan 4 Section Leader (Acara, Dekorasi, Perlengkapan, PDD).
           </p>
         </div>
       </div>
@@ -238,7 +286,7 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-700">
               <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-              Event Leader
+              Event Leader *
             </label>
             <select
               required
@@ -255,6 +303,26 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* 4 Section Leaders Wajib */}
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-indigo-600" />
+                <span>4 Section Leader Wajib (1 Orang = 1 Section)</span>
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {renderSectionLeaderSelect("Section Leader ACARA", acaraLeaderId, setAcaraLeaderId)}
+              {renderSectionLeaderSelect("Section Leader DEKORASI", dekorasiLeaderId, setDekorasiLeaderId)}
+              {renderSectionLeaderSelect("Section Leader PERLENGKAPAN", perlengkapanLeaderId, setPerlengkapanLeaderId)}
+              {renderSectionLeaderSelect("Section Leader PDD", pddLeaderId, setPddLeaderId)}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Anggota (Member) per divisi ditambahkan menyusul oleh masing-masing Section Leader setelah event dibuat.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">

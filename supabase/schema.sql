@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS event_roster (
   role_in_event event_role NOT NULL DEFAULT 'MEMBER',
   is_co_controller BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT uq_event_roster_user_section UNIQUE (event_id, user_id, section)
+  CONSTRAINT uq_event_roster_single_section UNIQUE (event_id, user_id)
 );
 
 -- 3.4 RUNDOWNS (EVENT SPECIFIC OR REUSABLE TEMPLATES)
@@ -266,6 +266,8 @@ CREATE TABLE IF NOT EXISTS timeline_tasks (
   due_date TIMESTAMPTZ,
   status task_status NOT NULL DEFAULT 'TODO',
   escalation_notes TEXT,
+  pic_change_reason TEXT,
+  pic_history JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -1731,9 +1733,10 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS operation_records (
   operation_id UUID PRIMARY KEY,
-  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  event_id UUID REFERENCES events(id) ON DELETE CASCADE,
   action_type TEXT NOT NULL,
   actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  details JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

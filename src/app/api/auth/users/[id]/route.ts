@@ -23,16 +23,37 @@ const UpdateMemberSchema = z.object({
     .optional(),
 });
 
-async function requireCreativeLeader() {
+async function requireGovernanceActor() {
   const session = await getServerSession();
   if (!session) {
-    return { allowed: false, status: 401, error: "Sesi tidak valid. Silakan login.", actorId: null };
+    return {
+      allowed: false as const,
+      status: 401,
+      error: "Sesi tidak valid. Silakan login.",
+      actorId: null,
+      isSuperadmin: false,
+      baseRole: null,
+    };
   }
   if (!isSupabaseConfigured()) {
     const ok = session.baseRole === "CREATIVE_LEADER" || session.isSuperadmin;
     return ok
-      ? { allowed: true, actorId: session.userId }
-      : { allowed: false, status: 403, error: "Hanya Creative Leader yang berhak mengelola anggota.", actorId: null };
+      ? {
+          allowed: true as const,
+          status: 200,
+          error: "",
+          actorId: session.userId,
+          isSuperadmin: Boolean(session.isSuperadmin),
+          baseRole: session.baseRole,
+        }
+      : {
+          allowed: false as const,
+          status: 403,
+          error: "Hanya Creative Leader atau Superadmin yang berhak mengelola anggota.",
+          actorId: null,
+          isSuperadmin: false,
+          baseRole: session.baseRole,
+        };
   }
 
   const supabase = createServerClient();
@@ -43,16 +64,31 @@ async function requireCreativeLeader() {
     .maybeSingle();
 
   if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
-    return { allowed: false, status: 403, error: "Hanya Creative Leader yang berhak mengelola anggota.", actorId: null };
+    return {
+      allowed: false as const,
+      status: 403,
+      error: "Hanya Creative Leader atau Superadmin yang berhak mengelola anggota.",
+      actorId: null,
+      isSuperadmin: false,
+      baseRole: actor?.base_role ?? null,
+    };
   }
-  return { allowed: true, actorId: session.userId };
+
+  return {
+    allowed: true as const,
+    status: 200,
+    error: "",
+    actorId: session.userId,
+    isSuperadmin: Boolean(actor.is_superadmin),
+    baseRole: actor.base_role,
+  };
 }
 
 export async function PATCH(
   request: Request,
   context: { params: { id: string } }
 ) {
-  const auth = await requireCreativeLeader();
+  const auth = await requireGovernanceActor();
   if (!auth.allowed) {
     return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
   }
@@ -77,8 +113,11 @@ export async function PATCH(
     }
     if (p.base_role !== undefined) {
       updatePayload.base_role = p.base_role;
-      updatePayload.is_superadmin = p.is_superadmin ?? p.base_role === "CREATIVE_LEADER";
-    } else if (p.is_superadmin !== undefined) {
+      if (p.is_role_assigned === undefined) {
+        updatePayload.is_role_assigned = true;
+      }
+    }
+    if (p.is_superadmin !== undefined) {
       updatePayload.is_superadmin = p.is_superadmin;
     }
     if (p.default_section !== undefined) updatePayload.default_section = p.default_section;
@@ -89,36 +128,76 @@ export async function PATCH(
       updatePayload.locked_until = null;
     }
 
+    if ((p.base_role === "CREATIVE_LEADER" || p.is_superadmin !== undefined) && !auth.isSuperadmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Hanya Superadmin yang berhak menunjuk atau mencabut hak Creative Leader dan Superadmin.",
+        },
+        { status: 403 }
+      );
+    }
+
     if (!isSupabaseConfigured()) {
       return NextResponse.json({ success: true, user: { id: targetUserId, ...updatePayload } });
     }
 
     const supabase = createServerClient();
+    const { data: currentTarget } = await supabase
+      .from("users")
+      .select("id, full_name, base_role, is_superadmin")
+      .eq("id", targetUserId)
+      .maybeSingle();
 
-    // Anti Last-Leader Lockout protection
-    if (p.base_role !== undefined && p.base_role !== "CREATIVE_LEADER") {
-      const { data: currentTarget } = await supabase
+    if (!currentTarget) {
+      return NextResponse.json({ success: false, error: "Pengguna tidak ditemukan." }, { status: 404 });
+    }
+
+    // Strict separation: non-superadmin CREATIVE_LEADER cannot alter/reset CREATIVE_LEADER or SUPERADMIN accounts
+    if ((currentTarget.is_superadmin || currentTarget.base_role === "CREATIVE_LEADER") && !auth.isSuperadmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Hanya Superadmin yang berhak mengubah akun atau mereset PIN Creative Leader dan Superadmin.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // Anti Last-Superadmin Lockout protection
+    if (p.is_superadmin === false && currentTarget.is_superadmin) {
+      const { count: superCount } = await supabase
         .from("users")
-        .select("id, base_role")
-        .eq("id", targetUserId)
-        .maybeSingle();
+        .select("id", { count: "exact", head: true })
+        .eq("is_superadmin", true);
 
-      if (currentTarget?.base_role === "CREATIVE_LEADER") {
-        const { count: leaderCount } = await supabase
-          .from("users")
-          .select("id", { count: "exact", head: true })
-          .eq("base_role", "CREATIVE_LEADER");
+      if ((superCount ?? 0) <= 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Tidak dapat mencabut status Superadmin terakhir. Tunjuk Superadmin lain terlebih dahulu.",
+          },
+          { status: 400 }
+        );
+      }
+    }
 
-        if ((leaderCount ?? 0) <= 1) {
-          return NextResponse.json(
-            {
-              success: false,
-              error:
-                "Tidak dapat menurunkan jabatan Creative Leader terakhir. Tetapkan Creative Leader lain terlebih dahulu.",
-            },
-            { status: 400 }
-          );
-        }
+    // Anti Last-Creative-Leader Lockout protection
+    if (p.base_role !== undefined && p.base_role !== "CREATIVE_LEADER" && currentTarget.base_role === "CREATIVE_LEADER") {
+      const { count: leaderCount } = await supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .eq("base_role", "CREATIVE_LEADER");
+
+      if ((leaderCount ?? 0) <= 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Tidak dapat menurunkan jabatan Creative Leader terakhir. Tetapkan Creative Leader lain terlebih dahulu.",
+          },
+          { status: 400 }
+        );
       }
     }
 
@@ -136,6 +215,33 @@ export async function PATCH(
       );
     }
 
+    try {
+      const actionType = p.new_pin
+        ? "USER_PIN_RESET"
+        : p.is_superadmin !== undefined
+        ? "USER_SUPERADMIN_UPDATED"
+        : p.base_role !== undefined
+        ? "USER_ROLE_UPDATED"
+        : "USER_UPDATED";
+      await supabase.from("operation_records").insert({
+        operation_id: crypto.randomUUID(),
+        event_id: null,
+        action_type: actionType,
+        actor_id: auth.actorId,
+        details: {
+          target_user_id: data.id,
+          target_name: data.full_name,
+          previous_role: currentTarget.base_role,
+          new_role: data.base_role,
+          previous_superadmin: Boolean(currentTarget.is_superadmin),
+          new_superadmin: Boolean(data.is_superadmin),
+          pin_reset: Boolean(p.new_pin),
+        },
+      });
+    } catch {
+      // Ignore audit log error before migration_v3 is applied
+    }
+
     return NextResponse.json({ success: true, user: data });
   } catch (err) {
     return NextResponse.json(
@@ -149,7 +255,7 @@ export async function DELETE(
   _request: Request,
   context: { params: { id: string } }
 ) {
-  const auth = await requireCreativeLeader();
+  const auth = await requireGovernanceActor();
   if (!auth.allowed) {
     return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
   }
@@ -167,6 +273,70 @@ export async function DELETE(
   }
 
   const supabase = createServerClient();
+  const { data: currentTarget } = await supabase
+    .from("users")
+    .select("id, full_name, base_role, is_superadmin")
+    .eq("id", targetUserId)
+    .maybeSingle();
+
+  if (!currentTarget) {
+    return NextResponse.json({ success: false, error: "Akun tidak ditemukan." }, { status: 404 });
+  }
+
+  if ((currentTarget.is_superadmin || currentTarget.base_role === "CREATIVE_LEADER") && !auth.isSuperadmin) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Hanya Superadmin yang berhak menghapus akun Creative Leader atau Superadmin.",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (currentTarget.is_superadmin) {
+    const { count: superCount } = await supabase
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("is_superadmin", true);
+
+    if ((superCount ?? 0) <= 1) {
+      return NextResponse.json(
+        { success: false, error: "Tidak dapat menghapus Superadmin terakhir." },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (currentTarget.base_role === "CREATIVE_LEADER") {
+    const { count: leaderCount } = await supabase
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("base_role", "CREATIVE_LEADER");
+
+    if ((leaderCount ?? 0) <= 1) {
+      return NextResponse.json(
+        { success: false, error: "Tidak dapat menghapus Creative Leader terakhir." },
+        { status: 400 }
+      );
+    }
+  }
+
+  try {
+    await supabase.from("operation_records").insert({
+      operation_id: crypto.randomUUID(),
+      event_id: null,
+      action_type: "USER_DELETED",
+      actor_id: auth.actorId,
+      details: {
+        target_user_id: currentTarget.id,
+        target_name: currentTarget.full_name,
+        target_role: currentTarget.base_role,
+      },
+    });
+  } catch {
+    // Ignore audit log error before migration_v3 is applied
+  }
+
   const { error } = await supabase.from("users").delete().eq("id", targetUserId);
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

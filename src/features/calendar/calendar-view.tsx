@@ -124,21 +124,58 @@ export function CalendarView({
   const [newSection, setNewSection] = useState<SectionType>("ACARA");
   const [newAssignee, setNewAssignee] = useState("");
 
+  const eventsLedAsSectionLeader = useMemo(() => {
+    if (!currentUser) return [];
+    return events.filter((ev) =>
+      roster.some(
+        (r) =>
+          r.event_id === ev.id &&
+          r.user_id === currentUser.id &&
+          r.role_in_event === "SECTION_LEADER"
+      )
+    );
+  }, [currentUser, events, roster]);
+
+  const canCreateCalendarTask = eventsLedAsSectionLeader.length > 0;
+
+  const sectionLeaderRosterForEvent = useMemo(() => {
+    if (!currentUser) return undefined;
+    return roster.find(
+      (r) =>
+        r.event_id === (newEventId || activeEvent.id) &&
+        r.user_id === currentUser.id &&
+        r.role_in_event === "SECTION_LEADER"
+    );
+  }, [currentUser, roster, newEventId, activeEvent.id]);
+
   const allowedSections = useMemo(
-    () => getAllowedSectionsForUser(currentUser, newEventId, roster),
-    [currentUser, newEventId, roster]
+    () =>
+      sectionLeaderRosterForEvent
+        ? [sectionLeaderRosterForEvent.section]
+        : getAllowedSectionsForUser(currentUser, newEventId, roster),
+    [sectionLeaderRosterForEvent, currentUser, newEventId, roster]
   );
 
-  const sectionUsers = useMemo(
-    () => getUsersBySection(users, newSection, newEventId, roster),
-    [users, newSection, newEventId, roster]
-  );
+  const sectionUsers = useMemo(() => {
+    const targetEvId = newEventId || activeEvent.id;
+    const rosterMemberIds = new Set(
+      roster
+        .filter((r) => r.event_id === targetEvId && r.section === newSection)
+        .map((r) => r.user_id)
+    );
+    if (rosterMemberIds.size > 0) {
+      return users.filter((u) => rosterMemberIds.has(u.id));
+    }
+    return getUsersBySection(users, newSection, targetEvId, roster);
+  }, [users, newSection, newEventId, activeEvent.id, roster]);
 
   useEffect(() => {
-    if (allowedSections.length === 1 && newSection !== allowedSections[0]) {
+    if (sectionLeaderRosterForEvent) {
+      setNewSection(sectionLeaderRosterForEvent.section);
+    } else if (allowedSections.length === 1 && newSection !== allowedSections[0]) {
       setNewSection(allowedSections[0]);
     }
-  }, [allowedSections, newSection]);
+  }, [sectionLeaderRosterForEvent, allowedSections, newSection]);
 
   useEffect(() => {
     if (newAssignee && !sectionUsers.some((u) => u.id === newAssignee)) {
@@ -201,10 +238,10 @@ export function CalendarView({
   };
 
   const handleCreateQuickTask = () => {
-    if (!newTitle.trim()) return;
+    if (!canCreateCalendarTask || !sectionLeaderRosterForEvent || !newTitle.trim()) return;
     onAddTask({
       event_id: newEventId || activeEvent.id,
-      section: newSection,
+      section: sectionLeaderRosterForEvent.section,
       phase: "PRE_EVENT" as TaskPhase,
       title: newTitle.trim(),
       assigned_to: newAssignee || null,
@@ -223,15 +260,23 @@ export function CalendarView({
       {/* Google-Calendar Style Top Toolbar */}
       <Card className="p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => setIsCreateOpen(true)}
-            className="gap-1.5 font-bold"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create</span>
-          </Button>
+          {canCreateCalendarTask && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                const defaultEv =
+                  eventsLedAsSectionLeader.find((ev) => ev.id === activeEvent.id) ??
+                  eventsLedAsSectionLeader[0];
+                if (defaultEv) setNewEventId(defaultEv.id);
+                setIsCreateOpen(true);
+              }}
+              className="gap-1.5 font-bold"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create</span>
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -398,7 +443,7 @@ export function CalendarView({
                     {weekDays.map((d) => {
                       const isToday = d.iso === todayIso;
                       const dayTasks = showTasks
-                        ? filteredTasks.filter((t) => t.due_date === d.iso)
+                        ? filteredTasks.filter((t) => (t.due_date || "").slice(0, 10) === d.iso)
                         : [];
                       const pendingCount = dayTasks.filter((t) => t.status !== "DONE").length;
                       const dayEvents = showEvents
@@ -465,7 +510,7 @@ export function CalendarView({
                             const isToday = d.iso === todayIso;
                             const hourTasks =
                               showTasks && hour === 9
-                                ? filteredTasks.filter((t) => t.due_date === d.iso)
+                                ? filteredTasks.filter((t) => (t.due_date || "").slice(0, 10) === d.iso)
                                 : [];
                             const hourRundown =
                               showRundown && d.iso === activeEvent.event_date
@@ -532,7 +577,7 @@ export function CalendarView({
               <div className="grid grid-cols-7 gap-1">
                 {monthDays.map((d) => {
                   const dayTasks = showTasks
-                    ? filteredTasks.filter((t) => t.due_date === d.iso)
+                    ? filteredTasks.filter((t) => (t.due_date || "").slice(0, 10) === d.iso)
                     : [];
                   const dayEvents = showEvents
                     ? events.filter((ev) => ev.event_date === d.iso)
@@ -715,7 +760,7 @@ export function CalendarView({
             onChange={(e) => setNewEventId(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-900"
           >
-            {events.map((ev) => (
+            {eventsLedAsSectionLeader.map((ev) => (
               <option key={ev.id} value={ev.id}>
                 {ev.title}
               </option>

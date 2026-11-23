@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Event,
   EventBudgetLedgerItem,
@@ -8,6 +8,7 @@ import {
   EventMinisterRow,
   EventRosterMember,
   RundownItem,
+  TechnicalExecutionSection,
   TimelineTask,
   User,
 } from "@/types/domain";
@@ -15,6 +16,9 @@ import {
   INITIAL_EVENT,
   canUserInitiateBrief,
   getProposalAccessMode,
+  getUserEventRosterEntry,
+  isCreativeLeader,
+  isUserEventLeader,
 } from "@/lib/mock-db";
 import {
   EventProjectBriefData,
@@ -22,6 +26,7 @@ import {
   exportProjectBriefToDocx,
   exportProjectBriefToPdf,
   mergeSyncedEventDataIntoBrief,
+  resolveTechnicalSections,
 } from "@/lib/proposal/export-proposal-word";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,6 +73,90 @@ export function ProposalBuilderView({
   const canInitiate = canUserInitiateBrief(currentUser, activeEvent, roster);
   const storageKey = `CT_EVENT_BRIEF_V2_${activeEvent.id}`;
 
+  const isFullBriefManager =
+    isCreativeLeader(currentUser) ||
+    currentUser?.base_role === "WAKIL_LEADER" ||
+    isUserEventLeader(currentUser, activeEvent, roster);
+  const rosterEntry = getUserEventRosterEntry(currentUser, activeEvent.id, roster);
+  const assignedSection = rosterEntry?.section;
+  const isSekretaris = currentUser?.base_role === "SEKRETARIS";
+  const isBendahara = currentUser?.base_role === "BENDAHARA";
+
+  const showOverview = isFullBriefManager || isSekretaris;
+  const showAcara = isFullBriefManager || assignedSection === "ACARA" || assignedSection === "ALL";
+  const showDekorasi = isFullBriefManager || assignedSection === "DEKORASI" || assignedSection === "ALL";
+  const showPerlengkapan = isFullBriefManager || assignedSection === "PERLENGKAPAN" || assignedSection === "ALL";
+  const showPdd = isFullBriefManager || assignedSection === "PDD" || assignedSection === "ALL";
+  const showBudget = isFullBriefManager || isBendahara;
+  const showSecretariatSections = isFullBriefManager || isSekretaris;
+  const showRundown = isFullBriefManager || assignedSection === "ACARA" || assignedSection === "ALL";
+  const showTechnical =
+    isFullBriefManager ||
+    isSekretaris ||
+    assignedSection === "ACARA" ||
+    assignedSection === "DEKORASI" ||
+    assignedSection === "PERLENGKAPAN" ||
+    assignedSection === "PDD" ||
+    assignedSection === "ALL";
+  const showApproval = isFullBriefManager || isSekretaris;
+
+  const visibleTabs = useMemo(() => {
+    const tabs: Array<{ id: DocSectionTab; label: string }> = [];
+    if (showOverview) {
+      tabs.push({ id: "COVER_OVERVIEW", label: "Sampul & 01–02 Overview" });
+    }
+    if (showAcara || showDekorasi) {
+      const label =
+        showAcara && showDekorasi
+          ? "03A–03B Acara & Dekorasi"
+          : showAcara
+          ? "03A Section Acara"
+          : "03B Section Dekorasi";
+      tabs.push({ id: "ACARA_DEKORASI", label });
+    }
+    if (showPerlengkapan || showPdd) {
+      const label =
+        showPerlengkapan && showPdd
+          ? "03C–03D Perlengkapan & PDD"
+          : showPerlengkapan
+          ? "03C Section Perlengkapan"
+          : "03D Section PDD";
+      tabs.push({ id: "PERLENGKAPAN_PDD", label });
+    }
+    if (showBudget || showSecretariatSections) {
+      const label =
+        showBudget && showSecretariatSections
+          ? "04–06 Budget, Panitia & Pelayan"
+          : showBudget
+          ? "04 Pembiayaan (Bendahara)"
+          : "05–06 Struktur Panitia & Pelayan";
+      tabs.push({ id: "BUDGET_SEKRETARIAT", label });
+    }
+    if (showRundown || showTechnical || showApproval) {
+      const label =
+        showRundown && showApproval
+          ? "07–09 Rundown, Teknis & Approval"
+          : showRundown
+          ? "07–08 Rundown & Teknis"
+          : showApproval
+          ? "08–09 Teknis & Approval"
+          : "08 Teknis Pelaksanaan";
+      tabs.push({ id: "RUNDOWN_APPROVAL", label });
+    }
+    return tabs;
+  }, [
+    showOverview,
+    showAcara,
+    showDekorasi,
+    showPerlengkapan,
+    showPdd,
+    showBudget,
+    showSecretariatSections,
+    showRundown,
+    showTechnical,
+    showApproval,
+  ]);
+
   const [docExists, setDocExists] = useState(false);
   const [loadingDoc, setLoadingDoc] = useState(true);
   const [initiating, setInitiating] = useState(false);
@@ -78,6 +167,33 @@ export function ProposalBuilderView({
     createDefaultBriefForEvent(activeEvent)
   );
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === step)) {
+      setStep(visibleTabs[0].id);
+    }
+  }, [visibleTabs, step]);
+
+  const technicalSections = useMemo(() => resolveTechnicalSections(data), [data]);
+
+  const updateTechnicalSections = (nextGroups: TechnicalExecutionSection[]) => {
+    const g0 = nextGroups[0]?.items ?? [];
+    const g1 = nextGroups[1]?.items ?? [];
+    const g2 = nextGroups[2]?.items ?? [];
+    setData((prev) => ({
+      ...prev,
+      technicalSections: nextGroups,
+      techEvent1: g0[0] ?? prev.techEvent1,
+      techEvent2: g0[1] ?? prev.techEvent2,
+      techEvent3: g0[2] ?? prev.techEvent3,
+      techSpecial1: g1[0] ?? prev.techSpecial1,
+      techSpecial2: g1[1] ?? prev.techSpecial2,
+      techSpecial3: g1[2] ?? prev.techSpecial3,
+      techPerf1: g2[0] ?? prev.techPerf1,
+      techPerf2: g2[1] ?? prev.techPerf2,
+      techPerf3: g2[2] ?? prev.techPerf3,
+    }));
+  };
 
   const showToast = (type: "success" | "error", text: string) => {
     setNotice({ type, text });
@@ -474,17 +590,9 @@ export function ProposalBuilderView({
         </div>
       )}
 
-      {/* Section Tabs */}
+      {/* Section Tabs (Filtered by Role & Section) */}
       <div className="flex gap-1.5 overflow-x-auto pb-1">
-        {(
-          [
-            { id: "COVER_OVERVIEW", label: "Sampul & 01–02 Overview" },
-            { id: "ACARA_DEKORASI", label: "03A–03B Acara & Dekorasi" },
-            { id: "PERLENGKAPAN_PDD", label: "03C–03D Perlengkapan & PDD" },
-            { id: "BUDGET_SEKRETARIAT", label: "04–06 Budget, Panitia & Pelayan" },
-            { id: "RUNDOWN_APPROVAL", label: "07–09 Rundown, Teknis & Approval" },
-          ] as const
-        ).map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -501,7 +609,7 @@ export function ProposalBuilderView({
       </div>
 
       {/* TAB 1: COVER + 01. OVERVIEW + 02. JOURNEY */}
-      {step === "COVER_OVERVIEW" && (
+      {step === "COVER_OVERVIEW" && showOverview && (
         <div className="space-y-4">
           <Card className="p-5 space-y-3.5 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
@@ -672,8 +780,9 @@ export function ProposalBuilderView({
       )}
 
       {/* TAB 2: 03A ACARA & 03B DEKORASI */}
-      {step === "ACARA_DEKORASI" && (
+      {step === "ACARA_DEKORASI" && (showAcara || showDekorasi) && (
         <div className="space-y-4">
+          {showAcara && (
           <Card className="p-5 space-y-3 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
               03A. Section — Acara
@@ -735,7 +844,9 @@ export function ProposalBuilderView({
               </div>
             </div>
           </Card>
+          )}
 
+          {showDekorasi && (
           <Card className="p-5 space-y-3 border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-sm font-extrabold text-slate-900">03B. Section — Dekorasi</h3>
@@ -838,12 +949,14 @@ export function ProposalBuilderView({
               ))}
             </div>
           </Card>
+          )}
         </div>
       )}
 
       {/* TAB 3: 03C PERLENGKAPAN & 03D DOKUMENTASI */}
-      {step === "PERLENGKAPAN_PDD" && (
+      {step === "PERLENGKAPAN_PDD" && (showPerlengkapan || showPdd) && (
         <div className="space-y-4">
+          {showPerlengkapan && (
           <Card className="p-5 space-y-3 border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-sm font-extrabold text-slate-900">
@@ -957,7 +1070,9 @@ export function ProposalBuilderView({
               />
             </div>
           </Card>
+          )}
 
+          {showPdd && (
           <Card className="p-5 space-y-3 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
               03D. Section — Dokumentasi (PDD)
@@ -982,11 +1097,12 @@ export function ProposalBuilderView({
               ))}
             </div>
           </Card>
+          )}
         </div>
       )}
 
       {/* TAB 4: 04 BUDGET + 05 PANITIA + 06 PELAYAN (AUTO-SYNCED) */}
-      {step === "BUDGET_SEKRETARIAT" && (
+      {step === "BUDGET_SEKRETARIAT" && (showBudget || showSecretariatSections) && (
         <div className="space-y-4">
           <div className="rounded-2xl bg-indigo-50 border border-indigo-200 px-4 py-3 text-xs text-indigo-800 flex flex-wrap items-center justify-between gap-2">
             <span>
@@ -998,6 +1114,7 @@ export function ProposalBuilderView({
             </Button>
           </div>
 
+          {showBudget && (
           <Card className="p-5 space-y-3 border-slate-200">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-extrabold text-slate-900">04. Budget Overview</h3>
@@ -1032,7 +1149,9 @@ export function ProposalBuilderView({
               </table>
             </div>
           </Card>
+          )}
 
+          {showSecretariatSections && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card className="p-5 space-y-3 border-slate-200">
               <h3 className="text-sm font-extrabold text-slate-900">
@@ -1094,12 +1213,14 @@ export function ProposalBuilderView({
               )}
             </Card>
           </div>
+          )}
         </div>
       )}
 
       {/* TAB 5: 07 RUNDOWN + 08 TEKNIS + 09 APPROVAL */}
-      {step === "RUNDOWN_APPROVAL" && (
+      {step === "RUNDOWN_APPROVAL" && (showRundown || showTechnical || showApproval) && (
         <div className="space-y-4">
+          {showRundown && (
           <Card className="p-5 space-y-3 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
               07. Susunan Acara (Rundown Ringkas)
@@ -1146,36 +1267,149 @@ export function ProposalBuilderView({
               Terhubung dengan <strong>{data.rundown.length} segmen rundown</strong> event aktif.
             </div>
           </Card>
+          )}
 
-          <Card className="p-5 space-y-3 border-slate-200">
-            <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
-              08. Teknis Pelaksanaan (Acara, Sesi Khusus &amp; Penampilan)
-            </h3>
-            <div className="space-y-2.5">
-              {[
-                { key: "techEvent1", label: "08.1 Teknis Acara & Usher — Poin 1" },
-                { key: "techEvent2", label: "08.1 Teknis Acara & Usher — Poin 2" },
-                { key: "techEvent3", label: "08.1 Teknis Acara & Usher — Poin 3" },
-                { key: "techSpecial1", label: "08.2 Teknis Sesi Khusus — Poin 1" },
-                { key: "techSpecial2", label: "08.2 Teknis Sesi Khusus — Poin 2" },
-                { key: "techSpecial3", label: "08.2 Teknis Sesi Khusus — Poin 3" },
-                { key: "techPerf1", label: "08.3 Teknis Penampilan — Poin 1" },
-                { key: "techPerf2", label: "08.3 Teknis Penampilan — Poin 2" },
-                { key: "techPerf3", label: "08.3 Teknis Penampilan — Poin 3" },
-              ].map((item) => (
-                <div key={item.key}>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">{item.label}</label>
-                  <input
-                    type="text"
-                    value={String(data[item.key as keyof EventProjectBriefData] || "")}
-                    onChange={(e) => setData({ ...data, [item.key]: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
+          {showTechnical && (
+          <Card className="p-5 space-y-4 border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  08. Teknis Pelaksanaan (Dinamis)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Tambah sub-bagian dan poin teknis sesuai kebutuhan event. Tersinkron penuh ke ekspor Word (.docx) dan PDF (.pdf).
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  updateTechnicalSections([
+                    ...technicalSections,
+                    {
+                      id: `tech-group-${Date.now()}`,
+                      title: `08.${technicalSections.length + 1} Sub-Bagian Teknis Baru`,
+                      items: [""],
+                    },
+                  ])
+                }
+                className="text-xs font-bold gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Tambah Sub-Bagian</span>
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              {technicalSections.map((group, gIdx) => (
+                <div
+                  key={group.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={group.title}
+                      onChange={(e) =>
+                        updateTechnicalSections(
+                          technicalSections.map((g, idx) =>
+                            idx === gIdx ? { ...g, title: e.target.value } : g
+                          )
+                        )
+                      }
+                      placeholder={`08.${gIdx + 1} Judul Sub-Bagian`}
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-800"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        updateTechnicalSections(
+                          technicalSections.map((g, idx) =>
+                            idx === gIdx ? { ...g, items: [...g.items, ""] } : g
+                          )
+                        )
+                      }
+                      className="text-[11px] gap-1 shrink-0"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Poin</span>
+                    </Button>
+                    {technicalSections.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateTechnicalSections(
+                            technicalSections.filter((_, idx) => idx !== gIdx)
+                          )
+                        }
+                        title="Hapus Sub-Bagian"
+                        className="p-1.5 rounded-xl border border-slate-200 bg-white text-rose-500 hover:bg-rose-50 shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 pl-1">
+                    {group.items.map((point, pIdx) => (
+                      <div key={pIdx} className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono text-slate-400 w-5 text-right shrink-0">
+                          {pIdx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          value={point}
+                          onChange={(e) =>
+                            updateTechnicalSections(
+                              technicalSections.map((g, idx) =>
+                                idx === gIdx
+                                  ? {
+                                      ...g,
+                                      items: g.items.map((it, i) =>
+                                        i === pIdx ? e.target.value : it
+                                      ),
+                                    }
+                                  : g
+                              )
+                            )
+                          }
+                          placeholder={`Poin teknis ${pIdx + 1}...`}
+                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800"
+                        />
+                        {group.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateTechnicalSections(
+                                technicalSections.map((g, idx) =>
+                                  idx === gIdx
+                                    ? {
+                                        ...g,
+                                        items: g.items.filter((_, i) => i !== pIdx),
+                                      }
+                                    : g
+                                )
+                              )
+                            }
+                            title="Hapus poin"
+                            className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
           </Card>
+          )}
 
+          {showApproval && (
           <Card className="p-5 space-y-3 border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-sm font-extrabold text-slate-900">
@@ -1268,6 +1502,7 @@ export function ProposalBuilderView({
               />
             </div>
           </Card>
+          )}
         </div>
       )}
     </div>

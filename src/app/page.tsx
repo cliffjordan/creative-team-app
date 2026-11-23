@@ -22,7 +22,7 @@ import {
   isCreativeLeader,
   isUnassignedMember,
 } from "@/lib/mock-db";
-import { getEventsAction } from "@/features/events/actions/event-actions";
+import { getWorkspaceBootstrapAction } from "@/features/events/actions/event-actions";
 import { Header } from "@/components/layout/header";
 import { InactivityTimeout } from "@/components/layout/inactivity-timeout";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
@@ -185,20 +185,70 @@ export default function Home() {
       }
     });
 
-    // Sync real events from Supabase/server action
-    getEventsAction()
-      .then((res) => {
-        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-          setEvents(res.data);
-          setEvent((prev) => (prev.id ? prev : res.data![0]));
-        }
-      })
-      .catch(() => {});
+    const syncWorkspaceFromServer = () => {
+      getWorkspaceBootstrapAction()
+        .then((res) => {
+          if (!res.success || !res.data) return;
+          const { events: serverEvents, roster: serverRoster, tasks: serverTasks } = res.data;
+          setEvents(serverEvents);
+          try {
+            localStorage.setItem("CT_EVENTS", JSON.stringify(serverEvents));
+          } catch {}
+          setRoster(serverRoster);
+          try {
+            localStorage.setItem("CT_ROSTER", JSON.stringify(serverRoster));
+          } catch {}
+          if (Array.isArray(serverTasks) && serverTasks.length > 0) {
+            setTasks(serverTasks);
+            try {
+              localStorage.setItem("CT_TASKS", JSON.stringify(serverTasks));
+            } catch {}
+          }
+          if (serverEvents.length > 0) {
+            setEvent((prev) => {
+              const matched = prev.id ? serverEvents.find((ev) => ev.id === prev.id) : undefined;
+              return matched ?? prev;
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    // Sync real events, roster & tasks from Supabase/server action on initial load
+    syncWorkspaceFromServer();
+
+    let lastSyncAt = Date.now();
+    const handleWindowFocusOrVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastSyncAt < 4000) return;
+      lastSyncAt = now;
+      syncWorkspaceFromServer();
+    };
+    window.addEventListener("focus", handleWindowFocusOrVisible);
+    document.addEventListener("visibilitychange", handleWindowFocusOrVisible);
 
     return () => {
       unsubscribe();
+      window.removeEventListener("focus", handleWindowFocusOrVisible);
+      document.removeEventListener("visibilitychange", handleWindowFocusOrVisible);
     };
   }, []);
+
+  // Re-sync workspace roster & events when authenticated user changes (e.g. role/job updated)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    getWorkspaceBootstrapAction()
+      .then((res) => {
+        if (!res.success || !res.data) return;
+        setEvents(res.data.events);
+        setRoster(res.data.roster);
+        if (res.data.tasks.length > 0) {
+          setTasks(res.data.tasks);
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id]);
 
   // Hydrate event Tasks, Rundown & Live Logs directly from Supabase when active event changes
   useEffect(() => {
@@ -351,6 +401,9 @@ export default function Home() {
   };
 
   const handleUpdateTask = (taskId: string, updated: Partial<TimelineTask>) => {
+    const targetTask = tasks.find((t) => t.id === taskId);
+    const targetEventId = targetTask?.event_id || event.id;
+
     setTasks((prev) => {
       const next = prev.map((t) =>
         t.id === taskId ? { ...t, ...updated, updated_at: new Date().toISOString() } : t
@@ -361,12 +414,21 @@ export default function Home() {
       publishSyncMessage("CT_TASKS", next);
       return next;
     });
-    if (event.id) {
-      fetch(`/api/events/${event.id}/tasks`, {
+    if (targetEventId) {
+      fetch(`/api/events/${targetEventId}/tasks`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: taskId, ...updated }),
-      }).catch(() => {});
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.success && res.task) {
+            setTasks((prev) =>
+              prev.map((t) => (t.id === taskId ? (res.task as TimelineTask) : t))
+            );
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -442,6 +504,17 @@ export default function Home() {
 
   const openIncidentsCount = eventLogs.filter((l) => l.status === "OPEN").length;
 
+  const pendingMyTaskCount = useMemo(
+    () =>
+      tasks.filter(
+        (t) =>
+          Boolean(currentUser) &&
+          t.assigned_to === currentUser?.id &&
+          t.status !== "DONE"
+      ).length,
+    [tasks, currentUser]
+  );
+
   const accessibleEvents = events.filter((ev) => canUserAccessEvent(currentUser, ev.id, roster));
 
   useEffect(() => {
@@ -499,6 +572,7 @@ export default function Home() {
         activeTab={effectiveActiveTab}
         onChangeTab={setActiveTab}
         openIncidentsCount={openIncidentsCount}
+        pendingMyTaskCount={pendingMyTaskCount}
         currentUser={currentUser}
         activeEvent={event}
         onOpenLogin={handleOpenLogin}
@@ -692,6 +766,7 @@ export default function Home() {
         activeTab={effectiveActiveTab}
         onChangeTab={setActiveTab}
         openIncidentsCount={openIncidentsCount}
+        pendingMyTaskCount={pendingMyTaskCount}
         currentUser={currentUser}
         activeEvent={event}
         onOpenLogin={handleOpenLogin}

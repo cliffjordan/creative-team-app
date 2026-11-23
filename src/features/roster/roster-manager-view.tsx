@@ -8,7 +8,6 @@ import {
   RefreshCw,
   Trash2,
   Shield,
-  Layers,
   Lock,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -23,6 +22,7 @@ import {
   removeRosterAction,
   rollRosterSectionAction,
 } from "@/features/events/actions/event-actions";
+import { publishSyncMessage } from "@/lib/sync/realtime-bus";
 import type {
   AppNotification,
   EventRosterMember,
@@ -33,6 +33,7 @@ import type {
 
 interface RosterManagerViewProps {
   eventId: string;
+  eventLeaderId?: string;
   initialRoster: EventRosterMember[];
   users: Pick<User, "id" | "full_name" | "base_role" | "avatar_url">[];
 }
@@ -55,6 +56,7 @@ const ROLES: { value: EventRole; label: string }[] = [
 
 export function RosterManagerView({
   eventId,
+  eventLeaderId,
   initialRoster,
   users,
 }: RosterManagerViewProps) {
@@ -80,9 +82,43 @@ export function RosterManagerView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const isTopLeader = useMemo(() => {
+    if (!effectiveUser) return false;
+    if (isCreativeLeader(effectiveUser) || effectiveUser.base_role === "WAKIL_LEADER") {
+      return true;
+    }
+    if (eventLeaderId && effectiveUser.id === eventLeaderId) {
+      return true;
+    }
+    return roster.some(
+      (r) =>
+        r.user_id === effectiveUser.id &&
+        (r.role_in_event === "EVENT_LEADER" || r.is_co_controller)
+    );
+  }, [effectiveUser, eventLeaderId, roster]);
+
+  const mySectionLeaderEntry = useMemo(() => {
+    if (!effectiveUser) return undefined;
+    return roster.find(
+      (r) =>
+        r.user_id === effectiveUser.id &&
+        r.role_in_event === "SECTION_LEADER"
+    );
+  }, [effectiveUser, roster]);
+
+  const canManageAnyRoster = isTopLeader || Boolean(mySectionLeaderEntry);
+
+  // Enforce 1 Member = Max 1 Section per Event: filter out users already assigned anywhere in this event
+  const unassignedEventUsers = useMemo(() => {
+    const assignedIds = new Set(roster.map((r) => r.user_id));
+    return users.filter((u) => !assignedIds.has(u.id));
+  }, [users, roster]);
+
   // Add form state
-  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? "");
-  const [selectedSection, setSelectedSection] = useState<SectionType>("ACARA");
+  const [selectedUserId, setSelectedUserId] = useState(unassignedEventUsers[0]?.id ?? "");
+  const [selectedSection, setSelectedSection] = useState<SectionType>(
+    mySectionLeaderEntry?.section ?? "ACARA"
+  );
   const [selectedRole, setSelectedRole] = useState<EventRole>("MEMBER");
   const [isCoController, setIsCoController] = useState(false);
 
@@ -91,14 +127,18 @@ export function RosterManagerView({
   const [rollRole, setRollRole] = useState<EventRole>("MEMBER");
   const [rollCoController, setRollCoController] = useState(false);
 
-  // Count assignments per user to detect dual-role / rangkap jabatan
-  const userAssignmentCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of roster) {
-      counts.set(item.user_id, (counts.get(item.user_id) ?? 0) + 1);
+  const syncLocalRoster = (updatedEventRoster: EventRosterMember[]) => {
+    try {
+      const saved = localStorage.getItem("CT_ROSTER");
+      const all: EventRosterMember[] = saved ? JSON.parse(saved) : [];
+      const others = all.filter((r) => r.event_id !== eventId);
+      const merged = [...updatedEventRoster, ...others];
+      localStorage.setItem("CT_ROSTER", JSON.stringify(merged));
+      publishSyncMessage("CT_ROSTER", merged);
+    } catch {
+      // ignore localStorage errors
     }
-    return counts;
-  }, [roster]);
+  };
 
   const filteredRoster = useMemo(() => {
     if (activeSection === "ALL_VIEW") return roster;
@@ -132,18 +172,52 @@ export function RosterManagerView({
     }
   }
 
+  function handleOpenAddModal() {
+    setError(null);
+    setSelectedUserId(unassignedEventUsers[0]?.id ?? "");
+    if (!isTopLeader && mySectionLeaderEntry) {
+      setSelectedSection(mySectionLeaderEntry.section);
+      setSelectedRole("MEMBER");
+      setIsCoController(false);
+    } else {
+      setSelectedSection(
+        activeSection !== "ALL_VIEW" ? activeSection : "ACARA"
+      );
+      setSelectedRole("MEMBER");
+      setIsCoController(false);
+    }
+    setIsAddOpen(true);
+  }
+
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (selectedRole === "SECTION_LEADER") {
+    if (!selectedUserId) {
+      setError("Pilih anggota terlebih dahulu.");
+      return;
+    }
+
+    if (roster.some((r) => r.user_id === selectedUserId)) {
+      setError("Anggota ini sudah tergabung di salah satu section pada event ini (maks. 1 section per event).");
+      return;
+    }
+
+    const effectiveSection =
+      !isTopLeader && mySectionLeaderEntry
+        ? mySectionLeaderEntry.section
+        : selectedSection;
+    const effectiveRole =
+      !isTopLeader && mySectionLeaderEntry ? "MEMBER" : selectedRole;
+
+    if (effectiveRole === "SECTION_LEADER") {
       const existingSectionLeader = roster.find(
         (r) =>
-          r.section === selectedSection && r.role_in_event === "SECTION_LEADER"
+          r.section === effectiveSection && r.role_in_event === "SECTION_LEADER"
       );
       if (existingSectionLeader) {
         setError(
-          `Section ${selectedSection} sudah memiliki Section Leader aktif (${
+          `Section ${effectiveSection} sudah memiliki Section Leader aktif (${
             existingSectionLeader.user?.full_name ?? "Anggota"
           }). Maksimal 1 Section Leader per section.`
         );
@@ -154,9 +228,9 @@ export function RosterManagerView({
     const payload = {
       event_id: eventId,
       user_id: selectedUserId,
-      section: selectedSection,
-      role_in_event: selectedRole,
-      is_co_controller: isCoController,
+      section: effectiveSection,
+      role_in_event: effectiveRole,
+      is_co_controller: isTopLeader ? isCoController : false,
     };
 
     const parsed = AssignRosterSchema.safeParse(payload);
@@ -176,17 +250,19 @@ export function RosterManagerView({
 
     setRoster((prev) => {
       let updated = prev;
-      if (selectedRole === "EVENT_LEADER") {
+      if (effectiveRole === "EVENT_LEADER") {
         updated = prev.map((r) =>
           r.role_in_event === "EVENT_LEADER"
             ? { ...r, role_in_event: "MEMBER" as EventRole }
             : r
         );
       }
-      return [...updated, res.data!];
+      const next = [...updated, res.data!];
+      syncLocalRoster(next);
+      return next;
     });
 
-    if (selectedRole === "EVENT_LEADER") {
+    if (effectiveRole === "EVENT_LEADER") {
       pushRosterNotification(
         selectedUserId,
         "Penunjukan Event Leader",
@@ -206,7 +282,7 @@ export function RosterManagerView({
 
   async function handleRoll(e: React.FormEvent) {
     e.preventDefault();
-    if (!rollingTarget) return;
+    if (!rollingTarget || !isTopLeader) return;
     setError(null);
 
     if (rollRole === "SECTION_LEADER") {
@@ -242,15 +318,17 @@ export function RosterManagerView({
       return;
     }
 
-    setRoster((prev) =>
-      prev.map((item) => {
+    setRoster((prev) => {
+      const next = prev.map((item) => {
         if (item.id === rollingTarget.id) return res.data!;
         if (rollRole === "EVENT_LEADER" && item.role_in_event === "EVENT_LEADER") {
           return { ...item, role_in_event: "MEMBER" as EventRole };
         }
         return item;
-      })
-    );
+      });
+      syncLocalRoster(next);
+      return next;
+    });
 
     if (rollRole === "EVENT_LEADER") {
       pushRosterNotification(
@@ -262,12 +340,18 @@ export function RosterManagerView({
     setRollingTarget(null);
   }
 
-  async function handleRemove(rosterId: string) {
+  async function handleRemove(member: EventRosterMember) {
     setBusy(true);
-    const res = await removeRosterAction(rosterId, eventId);
+    const res = await removeRosterAction(member.id, eventId);
     setBusy(false);
     if (res.success) {
-      setRoster((prev) => prev.filter((r) => r.id !== rosterId));
+      setRoster((prev) => {
+        const next = prev.filter((r) => r.id !== member.id);
+        syncLocalRoster(next);
+        return next;
+      });
+    } else if (res.error) {
+      setError(res.error);
     }
   }
 
@@ -279,17 +363,17 @@ export function RosterManagerView({
     );
   }
 
-  if (!isCreativeLeader(effectiveUser)) {
+  if (!canManageAnyRoster) {
     return (
       <Card className="mx-auto max-w-lg border-amber-200 bg-white p-8 text-center shadow-sm">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
           <Lock className="h-6 w-6" />
         </div>
         <h2 className="text-lg font-extrabold text-slate-900">
-          Akses Khusus Creative Leader
+          Akses Khusus Pimpinan &amp; Section Leader
         </h2>
         <p className="mt-2 text-sm text-slate-500">
-          Pengelolaan Roster Panitia hanya dapat diakses oleh Creative Leader.
+          Penambahan member divisi dikelola oleh Section Leader masing-masing atau Creative Leader / Event Leader.
         </p>
         <div className="mt-6">
           <Link href="/">
@@ -309,24 +393,25 @@ export function RosterManagerView({
           <Users className="h-5 w-5 text-indigo-600" />
           <div>
             <h2 className="text-lg font-extrabold text-slate-900">
-              Roster &amp; Rolling Section
+              Roster Panitia Event
             </h2>
             <p className="text-xs text-slate-500">
-              Mendukung rangkap jabatan (dual-role) dan rolling antar section.
+              {isTopLeader
+                ? "1 Member maksimal tergabung pada 1 Section per event. Section Leader dapat menambahkan Member ke divisinya sendiri."
+                : `Anda bertindak sebagai Section Leader ${mySectionLeaderEntry?.section ?? ""}. Tambahkan Member khusus untuk divisi Anda.`}
             </p>
           </div>
         </div>
         <Button
           type="button"
           variant="primary"
-          onClick={() => {
-            setError(null);
-            setIsAddOpen(true);
-          }}
+          onClick={handleOpenAddModal}
           className="gap-1.5 font-semibold"
         >
           <Plus className="h-4 w-4" />
-          Assign Anggota
+          {!isTopLeader && mySectionLeaderEntry
+            ? `Tambah Member (${mySectionLeaderEntry.section})`
+            : "Assign Anggota"}
         </Button>
       </div>
 
@@ -372,7 +457,12 @@ export function RosterManagerView({
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {filteredRoster.map((member) => {
-            const isDualRole = (userAssignmentCounts.get(member.user_id) ?? 0) > 1;
+            const canDeleteThisRow =
+              isTopLeader ||
+              (Boolean(mySectionLeaderEntry) &&
+                member.section === mySectionLeaderEntry?.section &&
+                member.role_in_event === "MEMBER");
+
             return (
               <Card
                 key={member.id}
@@ -383,12 +473,6 @@ export function RosterManagerView({
                     <span className="truncate font-bold text-slate-900">
                       {member.user?.full_name ?? "Anggota"}
                     </span>
-                    {isDualRole && (
-                      <Badge variant="amber" className="gap-1 text-[10px]">
-                        <Layers className="h-3 w-3" />
-                        Rangkap Jabatan
-                      </Badge>
-                    )}
                     {member.is_co_controller && (
                       <Badge variant="cyan" className="gap-1 text-[10px]">
                         <Shield className="h-3 w-3" />
@@ -403,27 +487,33 @@ export function RosterManagerView({
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => openRollModal(member)}
-                    title="Rolling Section / Role"
-                    className="h-8 w-8 p-0 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => handleRemove(member.id)}
-                    title="Hapus dari roster"
-                    className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                {(isTopLeader || canDeleteThisRow) && (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {isTopLeader && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => openRollModal(member)}
+                        title="Pindah Section / Ubah Role"
+                        className="h-8 w-8 p-0 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {canDeleteThisRow && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => handleRemove(member)}
+                        title="Hapus dari roster"
+                        className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                )}
               </Card>
             );
           })}
@@ -434,7 +524,11 @@ export function RosterManagerView({
       <Modal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
-        title="Assign Anggota ke Roster"
+        title={
+          !isTopLeader && mySectionLeaderEntry
+            ? `Tambah Member ke Divisi ${mySectionLeaderEntry.section}`
+            : "Assign Anggota ke Roster"
+        }
       >
         <form onSubmit={handleAssign} className="space-y-4">
           {error && (
@@ -445,19 +539,25 @@ export function RosterManagerView({
 
           <div>
             <label className="mb-1 block text-xs font-bold text-slate-700">
-              Anggota (bisa pilih yang sudah terdaftar untuk rangkap jabatan)
+              Pilih Anggota (1 orang maksimal 1 section per event)
             </label>
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} ({u.base_role})
-                </option>
-              ))}
-            </select>
+            {unassignedEventUsers.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                Semua anggota terdaftar sudah masuk ke salah satu section pada event ini.
+              </div>
+            ) : (
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                {unassignedEventUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.base_role})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -466,9 +566,10 @@ export function RosterManagerView({
                 Section
               </label>
               <select
+                disabled={!isTopLeader && Boolean(mySectionLeaderEntry)}
                 value={selectedSection}
                 onChange={(e) => setSelectedSection(e.target.value as SectionType)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500"
               >
                 {SECTIONS.map((s) => (
                   <option key={s} value={s}>
@@ -483,9 +584,10 @@ export function RosterManagerView({
                 Role di Event
               </label>
               <select
+                disabled={!isTopLeader && Boolean(mySectionLeaderEntry)}
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value as EventRole)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500"
               >
                 {ROLES.map((r) => (
                   <option key={r.value} value={r.value}>
@@ -496,15 +598,17 @@ export function RosterManagerView({
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-slate-700 font-medium">
-            <input
-              type="checkbox"
-              checked={isCoController}
-              onChange={(e) => setIsCoController(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Aktifkan akses Co-Controller Live Rundown
-          </label>
+          {isTopLeader && (
+            <label className="flex items-center gap-2 text-xs text-slate-700 font-medium">
+              <input
+                type="checkbox"
+                checked={isCoController}
+                onChange={(e) => setIsCoController(e.target.checked)}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Aktifkan akses Co-Controller Live Rundown
+            </label>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setIsAddOpen(false)}>
@@ -513,7 +617,7 @@ export function RosterManagerView({
             <Button
               type="submit"
               variant="primary"
-              disabled={busy}
+              disabled={busy || unassignedEventUsers.length === 0}
               className="font-semibold"
             >
               {busy ? "Menyimpan..." : "Simpan"}
@@ -522,11 +626,11 @@ export function RosterManagerView({
         </form>
       </Modal>
 
-      {/* Rolling Modal */}
+      {/* Rolling Modal (Top Leaders Only) */}
       <Modal
         isOpen={Boolean(rollingTarget)}
         onClose={() => setRollingTarget(null)}
-        title={`Rolling Section: ${rollingTarget?.user?.full_name ?? ""}`}
+        title={`Pindah Section / Role: ${rollingTarget?.user?.full_name ?? ""}`}
       >
         <form onSubmit={handleRoll} className="space-y-4">
           {error && (
@@ -595,7 +699,7 @@ export function RosterManagerView({
               disabled={busy}
               className="font-semibold"
             >
-              {busy ? "Memproses..." : "Terapkan Rolling"}
+              {busy ? "Memproses..." : "Terapkan Perubahan"}
             </Button>
           </div>
         </form>

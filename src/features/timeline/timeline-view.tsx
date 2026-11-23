@@ -5,8 +5,8 @@ import {
   INITIAL_EVENT,
   INITIAL_EVENTS,
   INITIAL_ROSTER,
-  getAllowedSectionsForUser,
   getUsersBySection,
+  isUserEventLeader,
 } from "@/lib/mock-db";
 import {
   Event,
@@ -14,6 +14,7 @@ import {
   TimelineTask,
   SectionType,
   TaskPhase,
+  TaskPicHistoryEntry,
   TaskStatus,
   User,
 } from "@/types/domain";
@@ -29,6 +30,8 @@ import {
   Plus,
   ArrowUpRight,
   Check,
+  UserCheck,
+  History,
 } from "lucide-react";
 
 interface TimelineViewProps {
@@ -93,6 +96,11 @@ export function TimelineView({
   const [resolutionText, setResolutionText] = useState("");
   const [resolveTargetStatus, setResolveTargetStatus] = useState<"IN_PROGRESS" | "DONE">("IN_PROGRESS");
 
+  // PIC Delegation State
+  const [delegateTargetTask, setDelegateTargetTask] = useState<TimelineTask | null>(null);
+  const [delegatePicId, setDelegatePicId] = useState<string>("");
+  const [delegateReason, setDelegateReason] = useState<string>("");
+
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   const [newEventId, setNewEventId] = useState(activeEvent.id);
   const [newTitle, setNewTitle] = useState("");
@@ -100,23 +108,51 @@ export function TimelineView({
   const [newSection, setNewSection] = useState<SectionType>("ACARA");
   const [newPhase, setNewPhase] = useState<TaskPhase>("PRE_EVENT");
   const [newAssignee, setNewAssignee] = useState("");
-  const [newDueDate, setNewDueDate] = useState("2026-12-20");
+  const [newDueDate, setNewDueDate] = useState(activeEvent.event_date || "2026-12-20");
 
-  const allowedSections = useMemo(
-    () => getAllowedSectionsForUser(currentUser, newEventId, roster),
-    [currentUser, newEventId, roster]
-  );
+  // Strict requirement: only Section Leaders assigned to an event can create manual tasks for their section
+  const sectionLeaderRosterForSelectedEvent = useMemo(() => {
+    if (!currentUser) return undefined;
+    return roster.find(
+      (r) =>
+        r.event_id === (newEventId || activeEvent.id) &&
+        r.user_id === currentUser.id &&
+        r.role_in_event === "SECTION_LEADER"
+    );
+  }, [currentUser, roster, newEventId, activeEvent.id]);
 
-  const sectionUsers = useMemo(
-    () => getUsersBySection(users, newSection, newEventId, roster),
-    [users, newSection, newEventId, roster]
-  );
+  const eventsLedAsSectionLeader = useMemo(() => {
+    if (!currentUser) return [];
+    return events.filter((ev) =>
+      roster.some(
+        (r) =>
+          r.event_id === ev.id &&
+          r.user_id === currentUser.id &&
+          r.role_in_event === "SECTION_LEADER"
+      )
+    );
+  }, [currentUser, events, roster]);
+
+  const canCreateManualTask = eventsLedAsSectionLeader.length > 0;
 
   useEffect(() => {
-    if (allowedSections.length === 1 && newSection !== allowedSections[0]) {
-      setNewSection(allowedSections[0]);
+    if (sectionLeaderRosterForSelectedEvent) {
+      setNewSection(sectionLeaderRosterForSelectedEvent.section);
     }
-  }, [allowedSections, newSection]);
+  }, [sectionLeaderRosterForSelectedEvent]);
+
+  const sectionUsers = useMemo(() => {
+    const targetEvId = newEventId || activeEvent.id;
+    const rosterMemberIds = new Set(
+      roster
+        .filter((r) => r.event_id === targetEvId && r.section === newSection)
+        .map((r) => r.user_id)
+    );
+    if (rosterMemberIds.size > 0) {
+      return users.filter((u) => rosterMemberIds.has(u.id));
+    }
+    return getUsersBySection(users, newSection, targetEvId, roster);
+  }, [users, newSection, newEventId, activeEvent.id, roster]);
 
   useEffect(() => {
     if (newAssignee && !sectionUsers.some((u) => u.id === newAssignee)) {
@@ -127,7 +163,50 @@ export function TimelineView({
   const isLeader =
     currentUser?.base_role === "CREATIVE_LEADER" ||
     currentUser?.base_role === "WAKIL_LEADER" ||
+    Boolean(currentUser?.is_superadmin) ||
     currentUser?.base_role === "SECTION_LEADER";
+
+  const canDelegateTaskPic = (task: TimelineTask): boolean => {
+    if (!currentUser) return false;
+    const targetEv = events.find((e) => e.id === task.event_id) ?? activeEvent;
+    if (
+      currentUser.base_role === "CREATIVE_LEADER" ||
+      currentUser.base_role === "WAKIL_LEADER" ||
+      Boolean(currentUser.is_superadmin) ||
+      isUserEventLeader(currentUser, targetEv, roster)
+    ) {
+      return true;
+    }
+    return roster.some(
+      (r) =>
+        r.event_id === task.event_id &&
+        r.user_id === currentUser.id &&
+        r.role_in_event === "SECTION_LEADER" &&
+        r.section === task.section
+    );
+  };
+
+  const delegateCandidateUsers = useMemo(() => {
+    if (!delegateTargetTask) return [];
+    const rosterIds = new Set(
+      roster
+        .filter(
+          (r) =>
+            r.event_id === delegateTargetTask.event_id &&
+            r.section === delegateTargetTask.section
+        )
+        .map((r) => r.user_id)
+    );
+    if (rosterIds.size > 0) {
+      return users.filter((u) => rosterIds.has(u.id));
+    }
+    if (delegateTargetTask.section === "INTI") {
+      return users.filter((u) =>
+        ["CREATIVE_LEADER", "WAKIL_LEADER", "SEKRETARIS", "BENDAHARA"].includes(u.base_role)
+      );
+    }
+    return users;
+  }, [delegateTargetTask, roster, users]);
 
   const weekHeaders = useMemo(
     () => getWeekMonthLabels(activeEvent?.event_date),
@@ -186,10 +265,10 @@ export function TimelineView({
   };
 
   const handleCreateTask = () => {
-    if (!newTitle.trim()) return;
+    if (!canCreateManualTask || !sectionLeaderRosterForSelectedEvent || !newTitle.trim()) return;
     onAddTask({
       event_id: newEventId || activeEvent.id,
-      section: newSection,
+      section: sectionLeaderRosterForSelectedEvent.section,
       phase: newPhase,
       title: newTitle.trim(),
       description: newDesc.trim(),
@@ -200,6 +279,39 @@ export function TimelineView({
     setIsAddTaskModalOpen(false);
     setNewTitle("");
     setNewDesc("");
+  };
+
+  const handleOpenDelegateModal = (task: TimelineTask) => {
+    setDelegateTargetTask(task);
+    setDelegatePicId(task.assigned_to || "");
+    setDelegateReason("");
+  };
+
+  const handleDelegateSubmit = () => {
+    if (!delegateTargetTask || delegateReason.trim().length < 3) return;
+    const trimmedReason = delegateReason.trim();
+    const prevHistory = Array.isArray(delegateTargetTask.pic_history)
+      ? delegateTargetTask.pic_history
+      : [];
+    const newEntry: TaskPicHistoryEntry = {
+      from_user_id: delegateTargetTask.assigned_to ?? null,
+      to_user_id: delegatePicId || null,
+      changed_by: currentUser?.id || "",
+      reason: trimmedReason,
+      changed_at: new Date().toISOString(),
+    };
+    const nextHistory = [...prevHistory, newEntry];
+    const updates: Partial<TimelineTask> = {
+      assigned_to: delegatePicId || null,
+      pic_change_reason: trimmedReason,
+      pic_history: nextHistory,
+    };
+    onUpdateTask(delegateTargetTask.id, updates);
+    if (selectedTask?.id === delegateTargetTask.id) {
+      setSelectedTask({ ...selectedTask, ...updates });
+    }
+    setDelegateTargetTask(null);
+    setDelegateReason("");
   };
 
   return (
@@ -216,18 +328,25 @@ export function TimelineView({
           </p>
         </div>
 
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={() => {
-            setNewEventId(activeEvent.id);
-            setIsAddTaskModalOpen(true);
-          }}
-          className="text-xs font-bold gap-1.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Task</span>
-        </Button>
+        {canCreateManualTask && (
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              const defaultEv =
+                eventsLedAsSectionLeader.find((ev) => ev.id === activeEvent.id) ??
+                eventsLedAsSectionLeader[0];
+              if (defaultEv) {
+                setNewEventId(defaultEv.id);
+              }
+              setIsAddTaskModalOpen(true);
+            }}
+            className="text-xs font-bold gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Task</span>
+          </Button>
+        )}
       </div>
 
       {/* Filters */}
@@ -419,6 +538,33 @@ export function TimelineView({
               </p>
             )}
 
+            {(selectedTask.pic_change_reason || (selectedTask.pic_history && selectedTask.pic_history.length > 0)) && (
+              <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-900 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Riwayat Delegasi PIC</span>
+                </div>
+                {selectedTask.pic_change_reason && (
+                  <p className="text-[11px]">
+                    <strong>Alasan Terakhir:</strong> {selectedTask.pic_change_reason}
+                  </p>
+                )}
+                {selectedTask.pic_history && selectedTask.pic_history.length > 0 && (
+                  <ul className="space-y-1 pt-1 border-t border-indigo-200/70 text-[11px]">
+                    {selectedTask.pic_history.map((h, i) => {
+                      const toName =
+                        users.find((u) => u.id === h.to_user_id)?.full_name || "Unassigned";
+                      return (
+                        <li key={`${h.changed_at}-${i}`}>
+                          → <strong>{toName}</strong>: {h.reason}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {selectedTask.status === "ESCALATED" && selectedTask.escalation_notes && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-2">
                 <div>
@@ -449,6 +595,17 @@ export function TimelineView({
                   }}
                 >
                   Kerjakan
+                </Button>
+              )}
+              {canDelegateTaskPic(selectedTask) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleOpenDelegateModal(selectedTask)}
+                  className="text-indigo-700 border-indigo-200 hover:bg-indigo-50 gap-1"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Delegasi / Ubah PIC
                 </Button>
               )}
               {selectedTask.status !== "DONE" && selectedTask.status !== "ESCALATED" && (
@@ -536,11 +693,83 @@ export function TimelineView({
         )}
       </Modal>
 
-      {/* MODAL TAMBAH TASK */}
+      {/* MODAL DELEGASI / UBAH PIC DENGAN ALASAN WAJIB */}
+      <Modal
+        isOpen={!!delegateTargetTask}
+        onClose={() => setDelegateTargetTask(null)}
+        title="Delegasi / Ubah PIC Task"
+        description={
+          delegateTargetTask
+            ? `${delegateTargetTask.title} (${delegateTargetTask.section})`
+            : undefined
+        }
+      >
+        {delegateTargetTask && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Pilih PIC Baru (Anggota Divisi {delegateTargetTask.section})
+              </label>
+              <select
+                value={delegatePicId}
+                onChange={(e) => setDelegatePicId(e.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm text-slate-900"
+              >
+                <option value="">-- Pilih Anggota --</option>
+                {delegateCandidateUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.base_role.replace("_", " ")})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Alasan Pergantian / Delegasi PIC *
+              </label>
+              <textarea
+                rows={3}
+                value={delegateReason}
+                onChange={(e) => setDelegateReason(e.target.value)}
+                placeholder="Wajib diisi (min. 3 karakter), misal: Delegasi ke anggota seksi Acara agar fokus ke rundown..."
+                className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs sm:text-sm text-slate-900"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDelegateTargetTask(null)}
+              >
+                Batal
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={
+                  !delegatePicId ||
+                  delegatePicId === (delegateTargetTask.assigned_to || "") ||
+                  delegateReason.trim().length < 3
+                }
+                onClick={handleDelegateSubmit}
+                className="font-bold"
+              >
+                Simpan Delegasi PIC
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* MODAL TAMBAH TASK (KHUSUS SECTION LEADER) */}
       <Modal
         isOpen={isAddTaskModalOpen}
         onClose={() => setIsAddTaskModalOpen(false)}
-        title="Tambah Task Baru"
+        title="Tambah Task Divisi Baru"
       >
         <div className="space-y-3">
           <div>
@@ -550,7 +779,7 @@ export function TimelineView({
               onChange={(e) => setNewEventId(e.target.value)}
               className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm text-slate-900"
             >
-              {events.map((ev) => (
+              {eventsLedAsSectionLeader.map((ev) => (
                 <option key={ev.id} value={ev.id}>
                   {ev.title}
                 </option>
@@ -571,19 +800,13 @@ export function TimelineView({
 
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Section</label>
-              <select
-                value={newSection}
-                onChange={(e) => setNewSection(e.target.value as SectionType)}
-                disabled={allowedSections.length === 1}
-                className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 disabled:bg-slate-100 disabled:text-slate-500"
-              >
-                {allowedSections.map((sec) => (
-                  <option key={sec} value={sec}>
-                    {sec}
-                  </option>
-                ))}
-              </select>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Section (Terkunci)</label>
+              <input
+                type="text"
+                readOnly
+                value={sectionLeaderRosterForSelectedEvent?.section || newSection}
+                className="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700"
+              />
             </div>
             <div>
               <label className="text-xs font-bold text-slate-700 block mb-1">Fase</label>

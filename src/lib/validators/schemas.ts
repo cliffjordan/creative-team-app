@@ -84,12 +84,20 @@ export const PinResetSchema = z.object({
 
 // ─── Event Schemas ─────────────────────────────────────────────────────────────
 
+export const SectionLeadersMapSchema = z.object({
+  ACARA: z.string().uuid("Pilih Section Leader Acara"),
+  DEKORASI: z.string().uuid("Pilih Section Leader Dekorasi"),
+  PERLENGKAPAN: z.string().uuid("Pilih Section Leader Perlengkapan"),
+  PDD: z.string().uuid("Pilih Section Leader PDD"),
+});
+
 export const CreateEventSchema = z.object({
   title: z.string().min(3, "Judul event minimal 3 karakter").max(200),
   theme: z.string().min(2, "Tema wajib diisi").max(300),
   event_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal: YYYY-MM-DD"),
   dresscode: z.string().max(500).optional(),
   event_leader_id: z.string().uuid("Pilih Event Leader"),
+  section_leaders: SectionLeadersMapSchema.optional(),
   time_tolerance_seconds: z.number().int().min(0).max(600).default(60),
 });
 
@@ -162,11 +170,13 @@ export const CreateTimelineTaskSchema = z.object({
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
   status: TaskStatusSchema.default("TODO"),
+  is_auto_brief_init: z.boolean().optional(),
 });
 
 export const UpdateTimelineTaskSchema = CreateTimelineTaskSchema.partial().extend({
   id: z.string().uuid(),
   escalation_notes: z.string().max(2000).nullable().optional(),
+  pic_change_reason: z.string().trim().max(1000).nullable().optional(),
 });
 
 // ─── Roster Schema ─────────────────────────────────────────────────────────────
@@ -214,17 +224,17 @@ export const UpdateBudgetItemSchema = CreateBudgetItemSchema.partial().extend({
 export const CommitteeMemberRowSchema = z.object({
   id: z.string().optional(),
   order_index: z.number().int().min(0).default(0),
-  position_name: z.string().min(1, "Nama jabatan wajib diisi").max(200),
+  position_name: z.string().trim().min(1, "Nama jabatan wajib diisi").max(200),
   pic_user_id: z.string().uuid().nullable().optional(),
-  pic_name: z.string().min(1, "Nama PIC wajib diisi").max(200),
+  pic_name: z.string().trim().max(200).default(""),
   contact_notes: z.string().max(500).nullable().optional(),
 });
 
 export const MinisterRowSchema = z.object({
   id: z.string().optional(),
   order_index: z.number().int().min(0).default(0),
-  ministry_role: z.string().min(1, "Posisi / Tim pelayanan wajib diisi").max(200),
-  minister_names: z.string().min(1, "Nama pelayan wajib diisi").max(500),
+  ministry_role: z.string().trim().min(1, "Posisi / Tim pelayanan wajib diisi").max(200),
+  minister_names: z.string().trim().max(500).default(""),
   notes: z.string().max(500).nullable().optional(),
 });
 

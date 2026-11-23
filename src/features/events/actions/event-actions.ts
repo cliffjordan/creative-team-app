@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
 import {
@@ -20,13 +20,21 @@ import type {
   EventStatus,
   EventRole,
   SectionType,
+  TimelineTask,
   User,
 } from "@/types/domain";
 
 export interface ActionResult<T = null> {
   success: boolean;
   data?: T;
+  roster?: EventRosterMember[];
   error?: string;
+}
+
+export interface WorkspaceBootstrapData {
+  events: EventWithLeader[];
+  roster: EventRosterMember[];
+  tasks: TimelineTask[];
 }
 
 export interface EventWithLeader extends Event {
@@ -45,27 +53,167 @@ function isSupabaseConfigured(): boolean {
   );
 }
 
-async function verifyCreativeLeaderSession(): Promise<string | null> {
+async function verifyRosterManagerPermission(params: {
+  eventId: string;
+  targetSection?: SectionType;
+  targetRole?: EventRole;
+}): Promise<{ allowed: boolean; error?: string; actorId?: string }> {
   const session = await getServerSession();
   if (!session) {
-    return "Sesi login tidak valid. Silakan login kembali sebagai Creative Leader.";
+    return {
+      allowed: false,
+      error: "Sesi login tidak valid. Silakan login kembali.",
+    };
   }
-  if (isSupabaseConfigured()) {
-    const supabase = createServerClient();
-    const { data: actor } = await supabase
-      .from("users")
-      .select("base_role, is_superadmin")
-      .eq("id", session.userId)
-      .maybeSingle();
-    if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
-      return "Akses ditolak: Hanya Creative Leader yang berwenang melakukan aksi ini.";
+
+  if (!isSupabaseConfigured()) {
+    const isGlobalLeader =
+      session.baseRole === "CREATIVE_LEADER" ||
+      session.baseRole === "WAKIL_LEADER" ||
+      session.isSuperadmin;
+    if (isGlobalLeader) {
+      return { allowed: true, actorId: session.userId };
     }
-    return null;
+    const actorRoster = demoRoster.find(
+      (r) => r.event_id === params.eventId && r.user_id === session.userId
+    );
+    const ev = demoEvents.find((e) => e.id === params.eventId);
+    if (
+      ev?.event_leader_id === session.userId ||
+      actorRoster?.role_in_event === "EVENT_LEADER" ||
+      actorRoster?.is_co_controller
+    ) {
+      return { allowed: true, actorId: session.userId };
+    }
+    if (
+      actorRoster?.role_in_event === "SECTION_LEADER" &&
+      (!params.targetSection || actorRoster.section === params.targetSection) &&
+      (!params.targetRole || params.targetRole === "MEMBER")
+    ) {
+      return { allowed: true, actorId: session.userId };
+    }
+    return {
+      allowed: false,
+      error: "Akses ditolak: Hanya Creative Leader, Event Leader, atau Section Leader divisi terkait.",
+    };
   }
-  if (session.baseRole !== "CREATIVE_LEADER" && !session.isSuperadmin) {
-    return "Akses ditolak: Hanya Creative Leader yang berwenang melakukan aksi ini.";
+
+  const supabase = createServerClient();
+  const [{ data: actor }, { data: targetEvent }, { data: actorRoster }] =
+    await Promise.all([
+      supabase
+        .from("users")
+        .select("base_role, is_superadmin")
+        .eq("id", session.userId)
+        .maybeSingle(),
+      supabase
+        .from("events")
+        .select("event_leader_id")
+        .eq("id", params.eventId)
+        .maybeSingle(),
+      supabase
+        .from("event_roster")
+        .select("section, role_in_event, is_co_controller")
+        .eq("event_id", params.eventId)
+        .eq("user_id", session.userId)
+        .maybeSingle(),
+    ]);
+
+  if (!actor) {
+    return { allowed: false, error: "Akun pengguna tidak ditemukan." };
   }
-  return null;
+
+  const isGlobalLeader =
+    actor.base_role === "CREATIVE_LEADER" ||
+    actor.base_role === "WAKIL_LEADER" ||
+    Boolean(actor.is_superadmin);
+  const isEventLeader =
+    targetEvent?.event_leader_id === session.userId ||
+    actorRoster?.role_in_event === "EVENT_LEADER" ||
+    Boolean(actorRoster?.is_co_controller);
+
+  if (isGlobalLeader || isEventLeader) {
+    return { allowed: true, actorId: session.userId };
+  }
+
+  const isMatchedSectionLeader =
+    actorRoster?.role_in_event === "SECTION_LEADER" &&
+    (!params.targetSection || actorRoster.section === params.targetSection) &&
+    (!params.targetRole || params.targetRole === "MEMBER");
+
+  if (isMatchedSectionLeader) {
+    return { allowed: true, actorId: session.userId };
+  }
+
+  return {
+    allowed: false,
+    error:
+      "Akses ditolak: Section Leader hanya dapat mengelola Member pada divisi yang dipimpinnya.",
+  };
+}
+
+export async function getWorkspaceBootstrapAction(): Promise<
+  ActionResult<WorkspaceBootstrapData>
+> {
+  noStore();
+  if (!isSupabaseConfigured()) {
+    return {
+      success: true,
+      data: {
+        events: demoEvents,
+        roster: demoRoster,
+        tasks: [],
+      },
+    };
+  }
+
+  try {
+    const supabase = createServerClient();
+    const [eventsRes, rosterRes, tasksRes] = await Promise.all([
+      supabase
+        .from("events")
+        .select(
+          `
+          *,
+          event_leader:users!events_event_leader_id_fkey(id, full_name, base_role, avatar_url)
+        `
+        )
+        .order("event_date", { ascending: false }),
+      supabase
+        .from("event_roster")
+        .select(
+          `
+          *,
+          user:users(id, full_name, base_role, avatar_url)
+        `
+        )
+        .order("section", { ascending: true }),
+      supabase
+        .from("timeline_tasks")
+        .select("*")
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (eventsRes.error) {
+      return { success: false, error: eventsRes.error.message };
+    }
+
+    return {
+      success: true,
+      data: {
+        events: (eventsRes.data ?? []) as EventWithLeader[],
+        roster: (rosterRes.data ?? []) as EventRosterMember[],
+        tasks: (tasksRes.data ?? []) as TimelineTask[],
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Gagal memuat data workspace",
+    };
+  }
 }
 
 // In-memory demo store for fallback mode
@@ -207,9 +355,32 @@ export async function createEventAction(
   input: unknown
 ): Promise<ActionResult<Event>> {
   try {
-    const authError = await verifyCreativeLeaderSession();
-    if (authError) {
-      return { success: false, error: authError };
+    const session = await getServerSession();
+    if (!session) {
+      return {
+        success: false,
+        error: "Sesi login tidak valid. Silakan login kembali sebagai Creative Leader.",
+      };
+    }
+
+    if (isSupabaseConfigured()) {
+      const supabaseCheck = createServerClient();
+      const { data: actor } = await supabaseCheck
+        .from("users")
+        .select("base_role, is_superadmin")
+        .eq("id", session.userId)
+        .maybeSingle();
+      if (!actor || (actor.base_role !== "CREATIVE_LEADER" && !actor.is_superadmin)) {
+        return {
+          success: false,
+          error: "Akses ditolak: Hanya Creative Leader yang berwenang membuat event baru.",
+        };
+      }
+    } else if (session.baseRole !== "CREATIVE_LEADER" && !session.isSuperadmin) {
+      return {
+        success: false,
+        error: "Akses ditolak: Hanya Creative Leader yang berwenang membuat event baru.",
+      };
     }
 
     const parsed = CreateEventSchema.safeParse(input);
@@ -220,8 +391,37 @@ export async function createEventAction(
       };
     }
 
-    const session = await getServerSession();
-    const createdBy = session?.userId ?? parsed.data.event_leader_id;
+    const sectionLeaders = parsed.data.section_leaders;
+    if (!sectionLeaders) {
+      return {
+        success: false,
+        error: "Wajib menunjuk 4 Section Leader (Acara, Dekorasi, Perlengkapan, PDD) saat membuat event.",
+      };
+    }
+
+    const leaderIds = [
+      sectionLeaders.ACARA,
+      sectionLeaders.DEKORASI,
+      sectionLeaders.PERLENGKAPAN,
+      sectionLeaders.PDD,
+    ];
+    if (new Set(leaderIds).size !== 4) {
+      return {
+        success: false,
+        error: "Keempat Section Leader harus orang yang berbeda (1 orang maksimal 1 section per event).",
+      };
+    }
+
+    const createdBy = session.userId ?? parsed.data.event_leader_id;
+    const sectionAssignments: Array<{ section: SectionType; userId: string }> = [
+      { section: "ACARA", userId: sectionLeaders.ACARA },
+      { section: "DEKORASI", userId: sectionLeaders.DEKORASI },
+      { section: "PERLENGKAPAN", userId: sectionLeaders.PERLENGKAPAN },
+      { section: "PDD", userId: sectionLeaders.PDD },
+    ];
+    const eventLeaderInSection = sectionAssignments.some(
+      (s) => s.userId === parsed.data.event_leader_id
+    );
 
     if (!isSupabaseConfigured()) {
       const now = new Date().toISOString();
@@ -241,17 +441,32 @@ export async function createEventAction(
           INITIAL_USERS.find((u) => u.id === parsed.data.event_leader_id) ?? null,
       };
       demoEvents.unshift(newEvent);
-      demoRoster.push({
+
+      const createdRoster: EventRosterMember[] = sectionAssignments.map((s) => ({
         id: crypto.randomUUID(),
         event_id: newEvent.id,
-        user_id: parsed.data.event_leader_id,
-        section: "INTI",
-        role_in_event: "EVENT_LEADER",
-        is_co_controller: false,
-        user: INITIAL_USERS.find((u) => u.id === parsed.data.event_leader_id),
-      });
+        user_id: s.userId,
+        section: s.section,
+        role_in_event: "SECTION_LEADER",
+        is_co_controller: s.userId === parsed.data.event_leader_id,
+        user: INITIAL_USERS.find((u) => u.id === s.userId),
+      }));
+
+      if (!eventLeaderInSection) {
+        createdRoster.push({
+          id: crypto.randomUUID(),
+          event_id: newEvent.id,
+          user_id: parsed.data.event_leader_id,
+          section: "INTI",
+          role_in_event: "EVENT_LEADER",
+          is_co_controller: false,
+          user: INITIAL_USERS.find((u) => u.id === parsed.data.event_leader_id),
+        });
+      }
+
+      demoRoster.push(...createdRoster);
       revalidatePath("/events");
-      return { success: true, data: newEvent };
+      return { success: true, data: newEvent, roster: createdRoster };
     }
 
     const supabase = createServerClient();
@@ -276,17 +491,40 @@ export async function createEventAction(
       };
     }
 
-    // Auto-assign Event Leader to roster in INTI section
-    await supabase.from("event_roster").insert({
+    const rosterRowsToInsert = sectionAssignments.map((s) => ({
       event_id: data.id,
-      user_id: parsed.data.event_leader_id,
-      section: "INTI",
-      role_in_event: "EVENT_LEADER",
-      is_co_controller: false,
-    });
+      user_id: s.userId,
+      section: s.section,
+      role_in_event: "SECTION_LEADER" as const,
+      is_co_controller: s.userId === parsed.data.event_leader_id,
+    }));
+
+    if (!eventLeaderInSection) {
+      rosterRowsToInsert.push({
+        event_id: data.id,
+        user_id: parsed.data.event_leader_id,
+        section: "INTI" as unknown as SectionType,
+        role_in_event: "EVENT_LEADER" as unknown as "SECTION_LEADER",
+        is_co_controller: false,
+      });
+    }
+
+    const { data: insertedRoster } = await supabase
+      .from("event_roster")
+      .insert(rosterRowsToInsert)
+      .select(
+        `
+        *,
+        user:users(id, full_name, base_role, avatar_url)
+      `
+      );
 
     revalidatePath("/events");
-    return { success: true, data: data as Event };
+    return {
+      success: true,
+      data: data as Event,
+      roster: (insertedRoster ?? []) as EventRosterMember[],
+    };
   } catch (err) {
     return {
       success: false,
@@ -394,11 +632,6 @@ export async function assignRosterAction(
   input: unknown
 ): Promise<ActionResult<EventRosterMember>> {
   try {
-    const authError = await verifyCreativeLeaderSession();
-    if (authError) {
-      return { success: false, error: authError };
-    }
-
     const parsed = AssignRosterSchema.safeParse(input);
     if (!parsed.success) {
       return {
@@ -407,7 +640,27 @@ export async function assignRosterAction(
       };
     }
 
+    const perm = await verifyRosterManagerPermission({
+      eventId: parsed.data.event_id,
+      targetSection: parsed.data.section,
+      targetRole: parsed.data.role_in_event,
+    });
+    if (!perm.allowed) {
+      return { success: false, error: perm.error ?? "Akses ditolak." };
+    }
+
     if (!isSupabaseConfigured()) {
+      const existingSameEvent = demoRoster.find(
+        (r) =>
+          r.event_id === parsed.data.event_id &&
+          r.user_id === parsed.data.user_id
+      );
+      if (existingSameEvent) {
+        return {
+          success: false,
+          error: `Anggota ini sudah terdaftar di divisi ${existingSameEvent.section} pada event ini (maksimal 1 section per event).`,
+        };
+      }
       const newMember: EventRosterMember = {
         id: crypto.randomUUID(),
         event_id: parsed.data.event_id,
@@ -423,6 +676,20 @@ export async function assignRosterAction(
     }
 
     const supabase = createServerClient();
+    const { data: existingEntry } = await supabase
+      .from("event_roster")
+      .select("id, section")
+      .eq("event_id", parsed.data.event_id)
+      .eq("user_id", parsed.data.user_id)
+      .maybeSingle();
+
+    if (existingEntry) {
+      return {
+        success: false,
+        error: `Anggota ini sudah terdaftar di divisi ${existingEntry.section} pada event ini (maksimal 1 section per event).`,
+      };
+    }
+
     const { data, error } = await supabase
       .from("event_roster")
       .insert({
@@ -441,9 +708,13 @@ export async function assignRosterAction(
       .single();
 
     if (error || !data) {
+      const msg =
+        error?.code === "23505"
+          ? "Anggota ini sudah terdaftar di divisi lain pada event ini (maksimal 1 section per event)."
+          : error?.message ?? "Gagal menambahkan anggota ke roster";
       return {
         success: false,
-        error: error?.message ?? "Gagal menambahkan anggota ke roster",
+        error: msg,
       };
     }
 
@@ -464,9 +735,11 @@ export async function rollRosterSectionAction(params: {
   role_in_event: EventRole;
   is_co_controller: boolean;
 }): Promise<ActionResult<EventRosterMember>> {
-  const authError = await verifyCreativeLeaderSession();
-  if (authError) {
-    return { success: false, error: authError };
+  const perm = await verifyRosterManagerPermission({
+    eventId: params.event_id,
+  });
+  if (!perm.allowed) {
+    return { success: false, error: perm.error ?? "Akses ditolak." };
   }
 
   if (!isSupabaseConfigured()) {
@@ -486,6 +759,28 @@ export async function rollRosterSectionAction(params: {
 
   try {
     const supabase = createServerClient();
+    const { data: actor } = await supabase
+      .from("users")
+      .select("base_role, is_superadmin")
+      .eq("id", perm.actorId!)
+      .maybeSingle();
+    const { data: targetEvent } = await supabase
+      .from("events")
+      .select("event_leader_id")
+      .eq("id", params.event_id)
+      .maybeSingle();
+    const isTopLeader =
+      actor?.base_role === "CREATIVE_LEADER" ||
+      actor?.base_role === "WAKIL_LEADER" ||
+      Boolean(actor?.is_superadmin) ||
+      targetEvent?.event_leader_id === perm.actorId;
+    if (!isTopLeader) {
+      return {
+        success: false,
+        error: "Rolling section antar divisi hanya dilakukan oleh Creative Leader / Event Leader.",
+      };
+    }
+
     const { data, error } = await supabase
       .from("event_roster")
       .update({
@@ -523,13 +818,17 @@ export async function removeRosterAction(
   rosterId: string,
   eventId: string
 ): Promise<ActionResult> {
-  const authError = await verifyCreativeLeaderSession();
-  if (authError) {
-    return { success: false, error: authError };
-  }
-
   if (!isSupabaseConfigured()) {
     const idx = demoRoster.findIndex((r) => r.id === rosterId);
+    const target = idx !== -1 ? demoRoster[idx] : undefined;
+    const perm = await verifyRosterManagerPermission({
+      eventId,
+      targetSection: target?.section,
+      targetRole: target?.role_in_event,
+    });
+    if (!perm.allowed) {
+      return { success: false, error: perm.error ?? "Akses ditolak." };
+    }
     if (idx !== -1) {
       demoRoster.splice(idx, 1);
     }
@@ -539,6 +838,21 @@ export async function removeRosterAction(
 
   try {
     const supabase = createServerClient();
+    const { data: targetRow } = await supabase
+      .from("event_roster")
+      .select("section, role_in_event")
+      .eq("id", rosterId)
+      .maybeSingle();
+
+    const perm = await verifyRosterManagerPermission({
+      eventId,
+      targetSection: targetRow?.section as SectionType | undefined,
+      targetRole: targetRow?.role_in_event as EventRole | undefined,
+    });
+    if (!perm.allowed) {
+      return { success: false, error: perm.error ?? "Akses ditolak." };
+    }
+
     const { error } = await supabase
       .from("event_roster")
       .delete()

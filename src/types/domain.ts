@@ -145,6 +145,30 @@ export interface LiveLog {
   created_at: string;
 }
 
+export interface TaskPicHistoryEntry {
+  from_user_id: string | null;
+  to_user_id: string | null;
+  changed_by: string;
+  reason: string;
+  changed_at: string;
+}
+
+export interface TechnicalExecutionSection {
+  id: string;
+  title: string;
+  items: string[];
+}
+
+export interface OperationRecord {
+  operation_id: string;
+  event_id?: string | null;
+  action_type: string;
+  actor_id?: string | null;
+  details?: Record<string, unknown> | null;
+  created_at: string;
+  actor?: Pick<User, 'id' | 'full_name' | 'base_role'> | null;
+}
+
 export interface TimelineTask {
   id: string;
   event_id: string;
@@ -162,6 +186,8 @@ export interface TimelineTask {
   escalation_recipient_id?: string | null;
   escalation_resolution?: string | null;
   escalation_resolved_at?: string | null;
+  pic_change_reason?: string | null;
+  pic_history?: TaskPicHistoryEntry[];
   created_at: string;
   updated_at: string;
 }

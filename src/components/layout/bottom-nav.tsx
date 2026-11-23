@@ -49,6 +49,7 @@ interface BottomNavProps {
   activeTab: TabType;
   onChangeTab: (tab: TabType) => void;
   openIncidentsCount?: number;
+  pendingMyTaskCount?: number;
   currentUser?: User | null;
   activeEvent?: Event | null;
   onOpenLogin?: () => void;
@@ -69,6 +70,7 @@ export function BottomNav({
   activeTab,
   onChangeTab,
   openIncidentsCount = 0,
+  pendingMyTaskCount = 0,
   currentUser,
   activeEvent,
   onOpenLogin,
@@ -88,17 +90,18 @@ export function BottomNav({
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     liveDot?: boolean;
+    badge?: number;
   }> = unassigned
     ? [
         { id: "home", label: "Home", icon: Home },
-        { id: "timeline", label: "Timeline", icon: CheckSquare },
+        { id: "timeline", label: "Timeline", icon: CheckSquare, badge: pendingMyTaskCount },
         { id: "calendar", label: "Calendar", icon: Calendar },
         { id: "profile", label: "Profil", icon: UserIcon },
       ]
     : [
         { id: "home", label: "Home", icon: Home },
         { id: "live", label: "Live", icon: Radio, liveDot: isLive },
-        { id: "timeline", label: "Timeline", icon: CheckSquare },
+        { id: "timeline", label: "Timeline", icon: CheckSquare, badge: pendingMyTaskCount },
         { id: "sections", label: "Sections", icon: Layers },
       ];
 
@@ -121,7 +124,12 @@ export function BottomNav({
           },
         ]
       : []),
-    { id: "timeline", label: "Tasks & Timeline", icon: CheckSquare },
+    {
+      id: "timeline",
+      label: "Tasks & Timeline",
+      icon: CheckSquare,
+      badge: pendingMyTaskCount,
+    },
     { id: "calendar", label: "Calendar & Schedule", icon: Calendar },
     ...(!unassigned ? [{ id: "sections" as TabType, label: "Sections & Tools", icon: Layers }] : []),
     ...(getFinanceAccessMode(currentUser ?? null) !== "LOCKED"
@@ -278,7 +286,14 @@ export function BottomNav({
                         </span>
                       )}
                       {item.badge !== undefined && item.badge > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                        <span
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            item.id === "timeline"
+                              ? "bg-indigo-100 text-indigo-700"
+                              : "bg-rose-100 text-rose-700"
+                          )}
+                        >
                           {item.badge}
                         </span>
                       )}
@@ -349,6 +364,11 @@ export function BottomNav({
                   />
                   {tab.liveDot && (
                     <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+                  )}
+                  {tab.badge !== undefined && tab.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 text-[10px] font-bold text-white flex items-center justify-center shadow-sm">
+                      {tab.badge}
+                    </span>
                   )}
                 </div>
                 <span className="text-[10px] mt-1 tracking-tight truncate w-full text-center">

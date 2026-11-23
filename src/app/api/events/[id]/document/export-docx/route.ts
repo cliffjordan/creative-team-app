@@ -3,7 +3,10 @@ import path from "path";
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/session";
-import type { EventProjectBriefData } from "@/lib/proposal/export-proposal-word";
+import {
+  EventProjectBriefData,
+  resolveTechnicalSections,
+} from "@/lib/proposal/export-proposal-word";
 
 function escapeXml(str: string): string {
   return String(str ?? "")
@@ -354,6 +357,40 @@ export async function POST(request: Request) {
     docXml = docXml
       .split('"[Tuliskan kutipan ayat Alkitab yang menjadi dasar tema acara di sini.]"')
       .join(formatXmlRunsText(`"${data.scriptureQuote}"`));
+
+    // 1b. Replace Section 08 (Teknis Pelaksanaan) with Dynamic Technical Sections OOXML
+    {
+      const techAnchor = docXml.indexOf(">TEKNIS PELAKSANAAN<");
+      if (techAnchor !== -1) {
+        const headingEnd = docXml.indexOf("</w:p>", techAnchor);
+        const sectPrIdx = docXml.indexOf("<w:sectPr", headingEnd);
+        const sectPrParaStart = sectPrIdx !== -1 ? docXml.lastIndexOf("<w:p", sectPrIdx) : -1;
+        if (headingEnd !== -1 && sectPrParaStart !== -1 && sectPrParaStart > headingEnd) {
+          const dynamicSections = resolveTechnicalSections(data);
+          const dynamicXml = dynamicSections
+            .map((grp) => {
+              const titleXml = `<w:p><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="80"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="31849B"/><w:sz w:val="22"/></w:rPr><w:t>${escapeXml(
+                grp.title || "-"
+              )}</w:t></w:r></w:p>`;
+              const validItems = grp.items.filter((line) => line.trim().length > 0);
+              const itemsXml = (validItems.length > 0 ? validItems : ["-"])
+                .map(
+                  (line) =>
+                    `<w:p><w:pPr><w:spacing w:before="20" w:after="40"/><w:ind w:left="255"/></w:pPr><w:r><w:rPr><w:color w:val="1E293B"/><w:sz w:val="19"/></w:rPr><w:t xml:space="preserve">${escapeXml(
+                      line
+                    )}</w:t></w:r></w:p>`
+                )
+                .join("");
+              return `${titleXml}${itemsXml}`;
+            })
+            .join("");
+          docXml =
+            docXml.slice(0, headingEnd + "</w:p>".length) +
+            dynamicXml +
+            docXml.slice(sectPrParaStart);
+        }
+      }
+    }
 
     // 2. Patch All 18 Tables Structurally
     const tableBlocks = extractTopLevelBlocks(docXml, "w:tbl");

@@ -56,10 +56,27 @@ const CORE_LEADER_ROLES = new Set([
   "BENDAHARA",
 ]);
 
+export function isSuperAdmin(user: User | null): boolean {
+  return Boolean(user?.is_superadmin);
+}
+
 export function isUnassignedMember(user: User | null): boolean {
   if (!user) return false;
   if (user.is_superadmin || user.base_role !== "MEMBER") return false;
-  return user.is_role_assigned === false || (!user.is_role_assigned && !user.default_section);
+  return user.is_role_assigned === false;
+}
+
+export function getUserEventRosterEntry(
+  user: User | null,
+  eventId: string,
+  roster: EventRosterMember[]
+): EventRosterMember | undefined {
+  if (!user || !eventId) return undefined;
+  return roster.find((r) => r.event_id === eventId && r.user_id === user.id);
+}
+
+export function canUserManageSuperAdmin(user: User | null): boolean {
+  return isSuperAdmin(user);
 }
 
 export function canUserAccessEvent(

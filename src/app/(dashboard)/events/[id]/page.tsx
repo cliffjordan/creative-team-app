@@ -133,6 +133,7 @@ export default async function EventDetailPage({
         {/* Roster Manager */}
         <RosterManagerView
           eventId={event.id}
+          eventLeaderId={event.event_leader_id}
           initialRoster={roster}
           users={users}
         />

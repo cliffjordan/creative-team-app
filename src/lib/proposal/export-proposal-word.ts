@@ -5,6 +5,7 @@ import type {
   EventCommitteeMember,
   EventMinisterRow,
   RundownItem,
+  TechnicalExecutionSection,
 } from "@/types/domain";
 
 export interface BriefDecorItem {
@@ -138,7 +139,7 @@ export interface EventProjectBriefData {
   rundownEndTime: string;
   rundown: BriefRundownRow[];
 
-  // 08. Teknis Pelaksanaan
+  // 08. Teknis Pelaksanaan (Dynamic + Legacy fallback fields)
   techEvent1: string;
   techEvent2: string;
   techEvent3: string;
@@ -148,10 +149,42 @@ export interface EventProjectBriefData {
   techPerf1: string;
   techPerf2: string;
   techPerf3: string;
+  technicalSections?: TechnicalExecutionSection[];
 
   // 09. Approval & Final Creative Direction
   approvals: BriefApprovalRow[];
   finalCreativeDirection: string;
+}
+
+export function resolveTechnicalSections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  if (Array.isArray(data.technicalSections) && data.technicalSections.length > 0) {
+    return data.technicalSections;
+  }
+  return [
+    {
+      id: "tech-group-1",
+      title: "08.1 Teknis Acara & Usher",
+      items: [data.techEvent1 || "", data.techEvent2 || "", data.techEvent3 || ""].filter(
+        (s) => s.trim().length > 0
+      ),
+    },
+    {
+      id: "tech-group-2",
+      title: "08.2 Teknis Sesi Khusus",
+      items: [data.techSpecial1 || "", data.techSpecial2 || "", data.techSpecial3 || ""].filter(
+        (s) => s.trim().length > 0
+      ),
+    },
+    {
+      id: "tech-group-3",
+      title: "08.3 Teknis Penampilan / Pengisi Acara",
+      items: [data.techPerf1 || "", data.techPerf2 || "", data.techPerf3 || ""].filter(
+        (s) => s.trim().length > 0
+      ),
+    },
+  ];
 }
 
 const DEFAULT_OVERVIEW_CATEGORIES = [
@@ -258,6 +291,35 @@ export function createDefaultBriefForEvent(event: Event): EventProjectBriefData 
     techPerf1: "1. Pengarahan MC kepada jemaat sebelum sesi penampilan dimulai.",
     techPerf2: "2. Transisi cepat antar penampil dipandu Floor Director dan Stage Crew.",
     techPerf3: "3. Pengumuman penutup & koordinasi sesi foto grup di akhir acara.",
+    technicalSections: [
+      {
+        id: "tech-group-1",
+        title: "08.1 Teknis Acara & Usher",
+        items: [
+          "1. Usher menyambut peserta di entrance, mencatat absensi, dan membagikan perlengkapan acara.",
+          "2. Pengaturan area tempat duduk peserta & pendamping/orang tua sesuai zona.",
+          "3. Koordinasi ketertiban bersama Floor Director selama ibadah berlangsung.",
+        ],
+      },
+      {
+        id: "tech-group-2",
+        title: "08.2 Teknis Sesi Khusus",
+        items: [
+          "1. Urutan pemanggilan perwakilan / alur masuk panggung diatur oleh MC & Stage Manager.",
+          "2. Lagu pengiring dan penyerahan properti disiapkan 2 segmen sebelumnya.",
+          "3. Operator lighting & multimedia mengeksekusi cue sesuai ketukan timer panggung.",
+        ],
+      },
+      {
+        id: "tech-group-3",
+        title: "08.3 Teknis Penampilan / Pengisi Acara",
+        items: [
+          "1. Pengarahan MC kepada jemaat sebelum sesi penampilan dimulai.",
+          "2. Transisi cepat antar penampil dipandu Floor Director dan Stage Crew.",
+          "3. Pengumuman penutup & koordinasi sesi foto grup di akhir acara.",
+        ],
+      },
+    ],
 
     approvals: [
       { role: "Ketua Panitia", name: "-", date: "" },
@@ -778,12 +840,21 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
           </table>
 
           <div class="sec-title">08. TEKNIS PELAKSANAAN</div>
-          <div class="sub-title">08.1 Teknis Acara &amp; Usher</div>
-          <p>${escapeHtml(data.techEvent1)}</p><p>${escapeHtml(data.techEvent2)}</p><p>${escapeHtml(data.techEvent3)}</p>
-          <div class="sub-title">08.2 Teknis Sesi Khusus</div>
-          <p>${escapeHtml(data.techSpecial1)}</p><p>${escapeHtml(data.techSpecial2)}</p><p>${escapeHtml(data.techSpecial3)}</p>
-          <div class="sub-title">08.3 Teknis Penampilan / Pengisi Acara</div>
-          <p>${escapeHtml(data.techPerf1)}</p><p>${escapeHtml(data.techPerf2)}</p><p>${escapeHtml(data.techPerf3)}</p>
+          ${resolveTechnicalSections(data)
+            .map(
+              (grp) => `
+                <div class="sub-title">${escapeHtml(grp.title)}</div>
+                ${
+                  grp.items.filter((line) => line.trim().length > 0).length > 0
+                    ? grp.items
+                        .filter((line) => line.trim().length > 0)
+                        .map((line) => `<p>${escapeHtml(line)}</p>`)
+                        .join("")
+                    : "<p>-</p>"
+                }
+              `
+            )
+            .join("")}
 
           <div class="sec-title">09. APPROVAL &amp; FINAL CREATIVE DIRECTION</div>
           <table class="doc-table">

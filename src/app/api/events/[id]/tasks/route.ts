@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
 import { SectionTypeSchema, TaskPhaseSchema, TaskStatusSchema } from "@/lib/validators/schemas";
+import type { TaskPicHistoryEntry } from "@/types/domain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,6 +22,7 @@ const CreateTaskSchema = z.object({
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
   status: TaskStatusSchema.default("TODO"),
+  is_auto_brief_init: z.boolean().optional(),
 });
 
 const UpdateTaskSchema = z.object({
@@ -38,6 +40,8 @@ const UpdateTaskSchema = z.object({
   escalation_recipient_id: z.string().uuid().nullable().optional(),
   escalation_resolution: z.string().max(2000).nullable().optional(),
   escalation_resolved_at: z.string().nullable().optional(),
+  pic_change_reason: z.string().trim().max(1000).nullable().optional(),
+  pic_history: z.array(z.any()).optional(),
 });
 
 export async function GET(
@@ -125,6 +129,50 @@ export async function POST(
     }
 
     const supabase = createServerClient();
+    const [{ data: actor }, { data: targetEvent }, { data: actorRoster }] =
+      await Promise.all([
+        supabase
+          .from("users")
+          .select("base_role, is_superadmin")
+          .eq("id", session.userId)
+          .maybeSingle(),
+        supabase
+          .from("events")
+          .select("event_leader_id")
+          .eq("id", eventId)
+          .maybeSingle(),
+        supabase
+          .from("event_roster")
+          .select("section, role_in_event, is_co_controller")
+          .eq("event_id", eventId)
+          .eq("user_id", session.userId)
+          .maybeSingle(),
+      ]);
+
+    const isAutoBriefInitLeader =
+      Boolean(p.is_auto_brief_init) &&
+      (actor?.base_role === "CREATIVE_LEADER" ||
+        actor?.base_role === "WAKIL_LEADER" ||
+        Boolean(actor?.is_superadmin) ||
+        targetEvent?.event_leader_id === session.userId ||
+        actorRoster?.role_in_event === "EVENT_LEADER" ||
+        Boolean(actorRoster?.is_co_controller));
+
+    const isMatchedSectionLeader =
+      actorRoster?.role_in_event === "SECTION_LEADER" &&
+      actorRoster.section === p.section;
+
+    if (!isMatchedSectionLeader && !isAutoBriefInitLeader) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Pembuatan task baru hanya dapat dilakukan oleh Section Leader untuk divisinya sendiri.",
+        },
+        { status: 403 }
+      );
+    }
+
     const { data: created, error } = await supabase
       .from("timeline_tasks")
       .insert(insertPayload)
@@ -177,25 +225,168 @@ export async function PATCH(
       );
     }
 
-    const { id, ...rest } = parsed.data;
+    const { id, pic_change_reason, pic_history: _ignoredClientHistory, ...rest } = parsed.data;
+
     if (!isSupabaseConfigured()) {
-      return NextResponse.json({ success: true, task: { id, event_id: eventId, ...rest } });
+      return NextResponse.json({
+        success: true,
+        task: {
+          id,
+          event_id: eventId,
+          ...rest,
+          ...(pic_change_reason ? { pic_change_reason } : {}),
+        },
+      });
     }
 
     const supabase = createServerClient();
-    const { data: updated, error } = await supabase
+
+    // Fetch existing task safely (fallback if pic_history column isn't migrated yet)
+    let existingTask: {
+      id: string;
+      section: string;
+      assigned_to: string | null;
+      pic_history?: TaskPicHistoryEntry[] | null;
+    } | null = null;
+
+    const firstLookup = await supabase
       .from("timeline_tasks")
-      .update(rest)
+      .select("id, section, assigned_to, pic_history")
+      .eq("id", id)
+      .eq("event_id", eventId)
+      .maybeSingle();
+
+    if (firstLookup.error && firstLookup.error.code === "42703") {
+      const fallbackLookup = await supabase
+        .from("timeline_tasks")
+        .select("id, section, assigned_to")
+        .eq("id", id)
+        .eq("event_id", eventId)
+        .maybeSingle();
+      existingTask = fallbackLookup.data;
+    } else {
+      existingTask = firstLookup.data as typeof existingTask;
+    }
+
+    if (!existingTask) {
+      return NextResponse.json(
+        { success: false, error: "Task tidak ditemukan." },
+        { status: 404 }
+      );
+    }
+
+    const updatePayload: Record<string, unknown> = { ...rest };
+    const isPicChanged =
+      rest.assigned_to !== undefined &&
+      (rest.assigned_to || null) !== (existingTask.assigned_to || null);
+
+    if (isPicChanged) {
+      const [{ data: actor }, { data: targetEvent }, { data: actorRoster }] =
+        await Promise.all([
+          supabase
+            .from("users")
+            .select("base_role, is_superadmin")
+            .eq("id", session.userId)
+            .maybeSingle(),
+          supabase
+            .from("events")
+            .select("event_leader_id")
+            .eq("id", eventId)
+            .maybeSingle(),
+          supabase
+            .from("event_roster")
+            .select("section, role_in_event, is_co_controller")
+            .eq("event_id", eventId)
+            .eq("user_id", session.userId)
+            .maybeSingle(),
+        ]);
+
+      const isSectionLeaderOfTask =
+        actorRoster?.role_in_event === "SECTION_LEADER" &&
+        actorRoster.section === existingTask.section;
+      const isTopLeader =
+        actor?.base_role === "CREATIVE_LEADER" ||
+        actor?.base_role === "WAKIL_LEADER" ||
+        Boolean(actor?.is_superadmin) ||
+        targetEvent?.event_leader_id === session.userId ||
+        actorRoster?.role_in_event === "EVENT_LEADER" ||
+        Boolean(actorRoster?.is_co_controller);
+
+      if (!isSectionLeaderOfTask && !isTopLeader) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Hanya Section Leader divisi terkait atau Pimpinan Event yang dapat mendelegasikan PIC.",
+          },
+          { status: 403 }
+        );
+      }
+
+      const trimmedReason = (pic_change_reason ?? "").trim();
+      if (trimmedReason.length < 3) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Alasan pergantian / delegasi PIC wajib diisi minimal 3 karakter.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const prevHistory = Array.isArray(existingTask.pic_history)
+        ? existingTask.pic_history
+        : [];
+      const nextHistory: TaskPicHistoryEntry[] = [
+        ...prevHistory,
+        {
+          from_user_id: existingTask.assigned_to ?? null,
+          to_user_id: rest.assigned_to ?? null,
+          changed_by: session.userId,
+          reason: trimmedReason,
+          changed_at: new Date().toISOString(),
+        },
+      ];
+      updatePayload.pic_change_reason = trimmedReason;
+      updatePayload.pic_history = nextHistory;
+    }
+
+    let updateRes = await supabase
+      .from("timeline_tasks")
+      .update(updatePayload)
       .eq("id", id)
       .eq("event_id", eventId)
       .select("*")
       .single();
 
-    if (error || !updated) {
+    if (updateRes.error && updateRes.error.code === "42703") {
+      // Fallback if pic_change_reason/pic_history haven't been migrated in Supabase yet
+      const { pic_change_reason: _pcr, pic_history: _ph, ...legacyPayload } = updatePayload;
+      updateRes = await supabase
+        .from("timeline_tasks")
+        .update(legacyPayload)
+        .eq("id", id)
+        .eq("event_id", eventId)
+        .select("*")
+        .single();
+    }
+
+    if (updateRes.error || !updateRes.data) {
       return NextResponse.json(
-        { success: false, error: error?.message || "Gagal memperbarui task" },
+        { success: false, error: updateRes.error?.message || "Gagal memperbarui task" },
         { status: 500 }
       );
+    }
+
+    const updated = updateRes.data;
+
+    if (isPicChanged && updated.assigned_to) {
+      await supabase.from("notifications").insert({
+        user_id: updated.assigned_to,
+        event_id: eventId,
+        type: "TASK_ASSIGNED",
+        title: `Delegasi PIC Task: ${updated.title}`,
+        body: `Alasan: ${pic_change_reason}`,
+      });
     }
 
     if (rest.status === "ESCALATED") {

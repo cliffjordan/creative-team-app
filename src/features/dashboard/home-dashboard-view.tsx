@@ -103,7 +103,6 @@ export function HomeDashboardView({
   onChangeTab,
   onUpdateTask,
 }: HomeDashboardViewProps) {
-  const [taskFilter, setTaskFilter] = useState<"MY" | "ALL">("MY");
   const [escalatingTask, setEscalatingTask] = useState<TimelineTask | null>(null);
   const [escalationNotes, setEscalationNotes] = useState("");
   const [escalationRecipientId, setEscalationRecipientId] = useState("");
@@ -127,14 +126,14 @@ export function HomeDashboardView({
   );
 
   const myTasks = useMemo(() => {
-    if (!currentUser) return eventTasks;
+    if (!currentUser) return [];
     return eventTasks.filter((t) => t.assigned_to === currentUser.id);
   }, [eventTasks, currentUser]);
 
-  const displayedTasks = taskFilter === "MY" && myTasks.length > 0 ? myTasks : eventTasks;
+  const displayedTasks = myTasks;
   const pendingTasksCount = useMemo(
-    () => eventTasks.filter((t) => t.status !== "DONE").length,
-    [eventTasks]
+    () => myTasks.filter((t) => t.status !== "DONE").length,
+    [myTasks]
   );
 
   const { activeStep, allDone } = useMemo(
@@ -403,39 +402,18 @@ export function HomeDashboardView({
               <div>
                 <h3 className="text-base font-extrabold text-slate-900">MY TASKS</h3>
                 <p className="text-xs text-slate-500">
-                  Prioritas persiapan divisi &amp; eskalasi kendala cepat.
+                  Daftar tugas tanggungan Anda pada event ini.
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setTaskFilter("MY")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                    taskFilter === "MY"
-                      ? "bg-white text-indigo-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Tugas Saya ({myTasks.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTaskFilter("ALL")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                    taskFilter === "ALL"
-                      ? "bg-white text-indigo-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Semua ({eventTasks.length})
-                </button>
-              </div>
+              <Badge variant="purple" className="text-xs font-bold">
+                Tugas Saya ({myTasks.length})
+              </Badge>
             </div>
 
             <div className="space-y-2.5">
               {displayedTasks.length === 0 ? (
                 <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-500">
-                  Belum ada tugas terdaftar pada event ini.
+                  Anda belum memiliki tanggungan tugas pada event ini.
                 </div>
               ) : (
                 displayedTasks.map((task) => {
