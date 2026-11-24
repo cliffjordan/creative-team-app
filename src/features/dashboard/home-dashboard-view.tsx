@@ -11,7 +11,11 @@ import {
   TimelineTask,
   User,
 } from "@/types/domain";
-import { isUserEventLeader, isCreativeLeader, getSectionAccessMode } from "@/lib/mock-db";
+import {
+  isUserEventLeader,
+  canManageEventRoster,
+  getSectionAccessMode,
+} from "@/lib/mock-db";
 import { TabType } from "@/components/layout/bottom-nav";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -291,7 +295,12 @@ export function HomeDashboardView({
                 <p className="text-xs text-slate-500">Tema: {activeEvent.theme}</p>
               </div>
 
-              {isCreativeLeader(currentUser ?? null) && (
+              {canManageEventRoster(
+                currentUser ?? null,
+                roster,
+                activeEvent.id,
+                activeEvent.event_leader_id
+              ) && (
                 <Link
                   href={`/events/${activeEvent.id}`}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition"

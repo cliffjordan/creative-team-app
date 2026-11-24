@@ -94,7 +94,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setCurrentUser((prev) => {
             if (!parsed) return null;
             const matched = users.find((u) => u.id === parsed.id);
-            return matched ? { ...matched } : prev?.id === parsed.id ? prev : null;
+            return matched
+              ? { ...matched }
+              : parsed.is_superadmin
+              ? parsed
+              : prev?.id === parsed.id
+              ? prev
+              : null;
           });
         } catch {
           setCurrentUser(null);

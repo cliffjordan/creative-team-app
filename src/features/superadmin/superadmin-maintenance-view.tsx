@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
@@ -10,6 +11,7 @@ import {
   Database,
   HeartPulse,
   KeyRound,
+  LogOut,
   RefreshCw,
   Server,
   Shield,
@@ -20,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { useAuth } from "@/providers/auth-provider";
 import type { OperationRecord, User, UserBaseRole } from "@/types/domain";
 
 interface HealthInfo {
@@ -45,6 +48,8 @@ const EMERGENCY_ROLES: { value: UserBaseRole; label: string }[] = [
 ];
 
 export function SuperadminMaintenanceView() {
+  const router = useRouter();
+  const { logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -156,17 +161,33 @@ export function SuperadminMaintenanceView() {
           </div>
         </div>
 
-        <Button
-          type="button"
-          variant="primary"
-          size="sm"
-          disabled={loading}
-          onClick={() => loadDiagnostics()}
-          className="gap-1.5 font-bold"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          <span>Run Diagnostics</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            disabled={loading}
+            onClick={() => loadDiagnostics()}
+            className="gap-1.5 font-bold"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <span>Run Diagnostics</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await logout();
+              router.replace("/superadmin/login");
+              router.refresh();
+            }}
+            className="gap-1.5 text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Keluar</span>
+          </Button>
+        </div>
       </div>
 
       {feedback && (

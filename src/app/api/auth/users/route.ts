@@ -5,6 +5,7 @@ import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server"
 import { INITIAL_USERS } from "@/lib/mock-db";
 import { getServerSession } from "@/lib/auth/session";
 import { hashPin } from "@/lib/auth/pin-hash";
+import { ensureTechnicalSuperadmin } from "@/lib/auth/superadmin-bootstrap";
 import { SafeNameSchema } from "@/lib/validators/schemas";
 import { SectionTypeSchema, UserBaseRoleSchema } from "@/lib/validators/schemas";
 
@@ -32,44 +33,19 @@ const CreateMemberSchema = z.object({
   pin: z.string().length(4, "PIN harus 4 digit").regex(/^\d{4}$/, "PIN harus 4 digit angka"),
 });
 
-async function ensureTechnicalSuperadmin(
-  supabase: ReturnType<typeof createServerClient>
-) {
-  const { data: existingSuper } = await supabase
-    .from("users")
-    .select("id")
-    .eq("is_superadmin", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingSuper) return;
-
-  const defaultPin = process.env.SUPERADMIN_DEFAULT_PIN || "9999";
-  await supabase.from("users").insert({
-    full_name: "System Superadmin",
-    email: "superadmin@creativehub.local",
-    phone: "+6280000000000",
-    pin_hash: hashPin(defaultPin),
-    is_superadmin: true,
-    base_role: "MEMBER",
-    default_section: null,
-    is_role_assigned: true,
-    failed_pin_attempts: 0,
-  });
-}
-
 export async function GET() {
   noStore();
   const session = await getServerSession();
   if (!isSupabaseConfigured()) {
+    const operationalUsers = INITIAL_USERS.filter((u) => !u.is_superadmin);
     const safeUsers = session
-      ? INITIAL_USERS
-      : INITIAL_USERS.map((u) => ({
+      ? operationalUsers
+      : operationalUsers.map((u) => ({
           id: u.id,
           full_name: u.full_name,
           base_role: u.base_role,
           is_role_assigned: u.is_role_assigned,
-          is_superadmin: Boolean(u.is_superadmin),
+          is_superadmin: false,
           avatar_url: u.avatar_url,
         }));
     return NextResponse.json(
@@ -88,6 +64,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("users")
       .select(session ? USER_SELECT_COLUMNS : PUBLIC_USER_SELECT_COLUMNS)
+      .eq("is_superadmin", false)
       .order("created_at", { ascending: true });
 
     if (error) {

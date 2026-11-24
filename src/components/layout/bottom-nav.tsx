@@ -23,9 +23,10 @@ import {
   LogIn,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { User, Event } from "@/types/domain";
+import { User, Event, EventRosterMember } from "@/types/domain";
 import {
   isCreativeLeader,
+  canManageEventRoster,
   isUnassignedMember,
   getFinanceAccessMode,
   getNotesAccessMode,
@@ -53,6 +54,7 @@ interface BottomNavProps {
   pendingMyTaskCount?: number;
   currentUser?: User | null;
   activeEvent?: Event | null;
+  roster?: EventRosterMember[];
   onOpenLogin?: () => void;
   onLogout?: () => void;
 }
@@ -74,6 +76,7 @@ export function BottomNav({
   pendingMyTaskCount = 0,
   currentUser,
   activeEvent,
+  roster = [],
   onOpenLogin,
   onLogout,
 }: BottomNavProps) {
@@ -310,7 +313,7 @@ export function BottomNav({
                 Manajemen Event &amp; Panggung
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {isCreativeLeader(currentUser ?? null) && (
+                {canManageEventRoster(currentUser ?? null, roster) && (
                   <Link
                     href="/events"
                     onClick={() => setIsDrawerOpen(false)}

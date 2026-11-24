@@ -201,6 +201,33 @@ export function isCreativeLeader(user: User | null): boolean {
   return user.base_role === "CREATIVE_LEADER" || Boolean(user.is_superadmin);
 }
 
+export function canManageEventRoster(
+  user: User | null,
+  roster: EventRosterMember[],
+  eventId?: string,
+  eventLeaderId?: string
+): boolean {
+  if (!user) return false;
+  if (
+    isCreativeLeader(user) ||
+    user.base_role === "WAKIL_LEADER" ||
+    user.base_role === "SECTION_LEADER"
+  ) {
+    return true;
+  }
+  if (eventLeaderId && user.id === eventLeaderId) {
+    return true;
+  }
+  return roster.some(
+    (r) =>
+      (!eventId || r.event_id === eventId) &&
+      r.user_id === user.id &&
+      (r.role_in_event === "EVENT_LEADER" ||
+        r.role_in_event === "SECTION_LEADER" ||
+        r.is_co_controller)
+  );
+}
+
 const ALL_SECTIONS: SectionType[] = ["ACARA", "DEKORASI", "PERLENGKAPAN", "PDD"];
 
 export function getUserHomeSection(

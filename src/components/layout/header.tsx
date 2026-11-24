@@ -3,7 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { User, Event, EventRosterMember, AppNotification } from "@/types/domain";
-import { canUserAccessEvent, INITIAL_NOTIFICATIONS, isCreativeLeader } from "@/lib/mock-db";
+import {
+  canUserAccessEvent,
+  canManageEventRoster,
+  INITIAL_NOTIFICATIONS,
+} from "@/lib/mock-db";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import {
@@ -223,7 +227,7 @@ export function Header({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isCreativeLeader(currentUser ?? null) && (
+          {canManageEventRoster(currentUser ?? null, roster) && (
             <Link
               href="/events"
               className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition"

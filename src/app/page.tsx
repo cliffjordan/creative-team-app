@@ -606,6 +606,7 @@ export default function Home() {
         pendingMyTaskCount={pendingMyTaskCount}
         currentUser={currentUser}
         activeEvent={event}
+        roster={roster}
         onOpenLogin={handleOpenLogin}
         onLogout={handleLogout}
       />
@@ -814,6 +815,7 @@ export default function Home() {
         pendingMyTaskCount={pendingMyTaskCount}
         currentUser={currentUser}
         activeEvent={event}
+        roster={roster}
         onOpenLogin={handleOpenLogin}
         onLogout={handleLogout}
       />

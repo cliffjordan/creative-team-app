@@ -34,6 +34,7 @@ import type { EventWithLeader } from "@/features/events/actions/event-actions";
 
 interface EventListViewProps {
   initialEvents: EventWithLeader[];
+  initialRoster?: EventRosterMember[];
 }
 
 const STATUS_TABS: { label: string; value: EventStatus | "ALL" }[] = [
@@ -56,12 +57,17 @@ const STATUS_BADGE_MAP: Record<
   COMPLETED: { label: "COMPLETED", variant: "emerald" },
 };
 
-export function EventListView({ initialEvents }: EventListViewProps) {
+export function EventListView({
+  initialEvents,
+  initialRoster = [],
+}: EventListViewProps) {
   const { currentUser } = useAuth();
   const [events, setEvents] = useState<EventWithLeader[]>(initialEvents);
   const [statusFilter, setStatusFilter] = useState<EventStatus | "ALL">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const [roster, setRoster] = useState<EventRosterMember[]>(INITIAL_ROSTER);
+  const [roster, setRoster] = useState<EventRosterMember[]>(
+    initialRoster.length > 0 ? initialRoster : INITIAL_ROSTER
+  );
   const [myTasks, setMyTasks] = useState<TimelineTask[]>([]);
 
   useEffect(() => {
@@ -69,10 +75,18 @@ export function EventListView({ initialEvents }: EventListViewProps) {
   }, [initialEvents]);
 
   useEffect(() => {
+    if (initialRoster.length > 0) {
+      setRoster(initialRoster);
+    }
+  }, [initialRoster]);
+
+  useEffect(() => {
     try {
-      const savedRoster = localStorage.getItem("CT_ROSTER");
-      if (savedRoster) {
-        setRoster(JSON.parse(savedRoster) as EventRosterMember[]);
+      if (initialRoster.length === 0) {
+        const savedRoster = localStorage.getItem("CT_ROSTER");
+        if (savedRoster) {
+          setRoster(JSON.parse(savedRoster) as EventRosterMember[]);
+        }
       }
       const savedTasks = localStorage.getItem("CT_TASKS");
       if (savedTasks && currentUser) {
@@ -88,7 +102,7 @@ export function EventListView({ initialEvents }: EventListViewProps) {
     } catch {
       // ignore localStorage parse errors
     }
-  }, [currentUser]);
+  }, [currentUser, initialRoster.length]);
 
   const accessibleEvents = useMemo(() => {
     if (!currentUser) return events;

@@ -81,6 +81,16 @@ export async function POST(request: Request) {
         );
       }
 
+      if (userRow.is_superadmin) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Akun Superadmin hanya dapat masuk melalui halaman khusus /superadmin/login.",
+          },
+          { status: 403 }
+        );
+      }
+
       if (userRow.locked_until && new Date(userRow.locked_until).getTime() > Date.now()) {
         return NextResponse.json(
           {
@@ -184,6 +194,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Pengguna tidak ditemukan" },
         { status: 404 }
+      );
+    }
+
+    if (demoUser.is_superadmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Akun Superadmin hanya dapat masuk melalui halaman khusus /superadmin/login.",
+        },
+        { status: 403 }
       );
     }
 

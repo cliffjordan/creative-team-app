@@ -8,7 +8,7 @@ export const revalidate = 0;
 export default async function SuperadminPage() {
   const session = await getServerSession();
   if (!session) {
-    redirect("/login?redirect=/superadmin");
+    redirect("/superadmin/login");
   }
   if (!session.isSuperadmin) {
     redirect("/");

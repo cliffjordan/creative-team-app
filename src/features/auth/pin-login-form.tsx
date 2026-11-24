@@ -3,7 +3,6 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { User } from "@/types/domain";
-import { Badge } from "@/components/ui/badge";
 import { Delete, UserCheck, AlertTriangle, Search, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,17 +19,22 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [isLocked, setIsLocked] = useState<boolean>(false);
 
-  const selectedUser = users.find((u) => u.id === selectedUserId);
+  const operationalUsers = useMemo(
+    () => users.filter((u) => !u.is_superadmin),
+    [users]
+  );
+
+  const selectedUser = operationalUsers.find((u) => u.id === selectedUserId);
 
   const filteredUsers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
+    if (!q) return operationalUsers;
+    return operationalUsers.filter(
       (u) =>
         u.full_name.toLowerCase().includes(q) ||
         u.base_role.replace("_", " ").toLowerCase().includes(q)
     );
-  }, [users, searchQuery]);
+  }, [operationalUsers, searchQuery]);
 
   const handleKeyPress = (num: string) => {
     if (isLocked) return;
@@ -105,7 +109,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
   if (!selectedUser) {
     return (
       <div className="space-y-3.5">
-        {users.length === 0 ? (
+        {operationalUsers.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-6 text-center space-y-3">
             <div className="mx-auto w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <UserPlus className="w-5 h-5" />
@@ -163,11 +167,6 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
                         <div className="text-xs text-slate-500 mt-0.5">{user.base_role.replace("_", " ")}</div>
                       </div>
                     </div>
-                    {user.is_superadmin && (
-                      <Badge variant="purple" className="text-[10px] shrink-0">
-                        Superadmin
-                      </Badge>
-                    )}
                   </button>
                 );
               })}

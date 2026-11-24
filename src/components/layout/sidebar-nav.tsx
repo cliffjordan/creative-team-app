@@ -22,9 +22,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/ui/brand-logo";
-import { User, Event } from "@/types/domain";
+import { User, Event, EventRosterMember } from "@/types/domain";
 import {
   isCreativeLeader,
+  canManageEventRoster,
   isUnassignedMember,
   getFinanceAccessMode,
   getNotesAccessMode,
@@ -39,6 +40,7 @@ interface SidebarNavProps {
   pendingMyTaskCount?: number;
   currentUser?: User | null;
   activeEvent?: Event | null;
+  roster?: EventRosterMember[];
   onOpenLogin?: () => void;
   onLogout?: () => void;
 }
@@ -50,6 +52,7 @@ export function SidebarNav({
   pendingMyTaskCount = 0,
   currentUser,
   activeEvent,
+  roster = [],
   onOpenLogin,
   onLogout,
 }: SidebarNavProps) {
@@ -181,7 +184,7 @@ export function SidebarNav({
           <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Manajemen Event
           </div>
-          {isCreativeLeader(currentUser ?? null) && (
+          {canManageEventRoster(currentUser ?? null, roster) && (
             <Link
               href="/events"
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-all"
