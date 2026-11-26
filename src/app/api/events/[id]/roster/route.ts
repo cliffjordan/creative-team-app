@@ -95,7 +95,7 @@ export async function POST(
     }
 
     const supabase = createServerClient();
-    const [{ data: actor }, { data: targetEvent }, { data: actorRoster }, { data: existingMember }] =
+    const [{ data: actor }, { data: targetEvent }, { data: actorRoster }, { data: existingMember }, { data: targetUser }] =
       await Promise.all([
         supabase
           .from("users")
@@ -119,7 +119,22 @@ export async function POST(
           .eq("event_id", eventId)
           .eq("user_id", parsed.data.user_id)
           .maybeSingle(),
+        supabase
+          .from("users")
+          .select("id, is_superadmin")
+          .eq("id", parsed.data.user_id)
+          .maybeSingle(),
       ]);
+
+    if (!targetUser) {
+      return NextResponse.json({ success: false, error: "Akun target tidak ditemukan." }, { status: 404 });
+    }
+    if (targetUser.is_superadmin) {
+      return NextResponse.json(
+        { success: false, error: "Akun teknis Superadmin tidak dapat ditambahkan ke roster event." },
+        { status: 403 }
+      );
+    }
 
     const isTopLeader =
       actor?.base_role === "CREATIVE_LEADER" ||

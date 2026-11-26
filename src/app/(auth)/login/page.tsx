@@ -2,6 +2,8 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { FADE_FAST } from "@/providers/motion-provider";
 import { useAuth } from "@/providers/auth-provider";
 import { PinLoginForm } from "@/features/auth/pin-login-form";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -102,7 +104,12 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/60 p-6 sm:p-8">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={FADE_FAST}
+            className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/60 p-6 sm:p-8"
+          >
             <div className="mb-5 hidden lg:block">
               <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
                 Sign In Anggota
@@ -113,7 +120,7 @@ export default function LoginPage() {
             </div>
 
             <PinLoginForm users={users} onSuccessLogin={handleSuccessLogin} />
-          </div>
+          </motion.div>
         </div>
       </section>
     </main>

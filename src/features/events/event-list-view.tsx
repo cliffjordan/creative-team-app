@@ -2,6 +2,9 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { SPRING_TAB } from "@/providers/motion-provider";
+import { formatDateDisplayWIB } from "@/lib/utils";
 import {
   Calendar,
   Plus,
@@ -231,7 +234,7 @@ export function EventListView({
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
                           <Clock className="h-3 w-3 text-cyan-400" />
-                          {new Date(event.event_date).toLocaleDateString("id-ID", {
+                          {formatDateDisplayWIB(event.event_date, {
                             day: "2-digit",
                             month: "short",
                             year: "numeric",
@@ -295,7 +298,7 @@ export function EventListView({
       {/* Filter & Search Bar */}
       <Card className="border-slate-800/80 bg-[#131B2E]/90 p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+          <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1 lg:pb-0">
             {STATUS_TABS.map((tab) => {
               const active = statusFilter === tab.value;
               return (
@@ -303,13 +306,20 @@ export function EventListView({
                   key={tab.value}
                   type="button"
                   onClick={() => setStatusFilter(tab.value)}
-                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  className={`relative whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                     active
-                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                      ? "text-cyan-300"
                       : "bg-[#0B0F19] text-slate-400 border border-slate-800 hover:text-slate-200 hover:border-slate-700"
                   }`}
                 >
-                  {tab.label}
+                  {active && (
+                    <motion.span
+                      layoutId="event-status-tab"
+                      transition={SPRING_TAB}
+                      className="absolute inset-0 rounded-lg bg-cyan-500/20 border border-cyan-500/40 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                    />
+                  )}
+                  <span className="relative z-10">{tab.label}</span>
                 </button>
               );
             })}
@@ -362,7 +372,7 @@ export function EventListView({
                     </Badge>
                     <span className="flex items-center gap-1 text-xs text-slate-400">
                       <Calendar className="h-3.5 w-3.5 text-cyan-400" />
-                      {new Date(ev.event_date).toLocaleDateString("id-ID", {
+                      {formatDateDisplayWIB(ev.event_date, {
                         day: "2-digit",
                         month: "short",
                         year: "numeric",

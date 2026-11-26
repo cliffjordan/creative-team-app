@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
+import { FADE_FAST } from "@/providers/motion-provider";
 import { User, Event, EventRosterMember, AppNotification } from "@/types/domain";
 import {
   canUserAccessEvent,
@@ -190,33 +192,42 @@ export function Header({
                   <span className="truncate">{activeEvent?.title || "Pilih Event"}</span>
                   <ChevronDown className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                 </button>
-                {eventMenuOpen && (
-                  <div className="absolute left-0 mt-2 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl p-1.5 z-50">
-                    {accessibleEvents.map((ev) => {
-                      const isSelected = ev.id === activeEvent?.id;
-                      return (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          onClick={() => {
-                            onSelectEvent(ev.id);
-                            setEventMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-xs transition flex items-center justify-between gap-2 ${
-                            isSelected
-                              ? "bg-indigo-50 text-indigo-700 font-bold"
-                              : "text-slate-700 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className="truncate">{ev.title}</span>
-                          <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                            {ev.status}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <AnimatePresence>
+                  {eventMenuOpen && (
+                    <motion.div
+                      data-lenis-prevent
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={FADE_FAST}
+                      className="absolute left-0 mt-2 w-72 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl p-1.5 z-50"
+                    >
+                      {accessibleEvents.map((ev) => {
+                        const isSelected = ev.id === activeEvent?.id;
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={() => {
+                              onSelectEvent(ev.id);
+                              setEventMenuOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? "bg-indigo-50 text-indigo-700 font-bold"
+                                : "text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className="truncate">{ev.title}</span>
+                            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                              {ev.status}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             ) : (
               <p className="text-xs font-semibold text-slate-600 truncate max-w-[200px] mt-0.5">
@@ -253,55 +264,63 @@ export function Header({
                 )}
               </button>
 
-              {notifOpen && (
-                <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border border-slate-200 bg-white shadow-xl p-2 z-50">
-                  <div className="flex items-center justify-between px-2 pb-2 border-b border-slate-100">
-                    <span className="text-xs font-bold text-slate-800">Notifikasi</span>
-                    {unreadCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={markAllAsRead}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700"
-                      >
-                        <CheckCheck className="w-3.5 h-3.5" />
-                        Tandai semua dibaca
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 mt-1">
-                    {userNotifications.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-6">
-                        Belum ada notifikasi.
-                      </p>
-                    ) : (
-                      userNotifications.map((n) => (
+              <AnimatePresence>
+                {notifOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                    transition={FADE_FAST}
+                    className="absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border border-slate-200 bg-white shadow-xl p-2 z-50"
+                  >
+                    <div className="flex items-center justify-between px-2 pb-2 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-800">Notifikasi</span>
+                      {unreadCount > 0 && (
                         <button
-                          key={n.id}
                           type="button"
-                          onClick={() => markAsRead(n.id)}
-                          className={`w-full text-left p-2.5 rounded-xl transition ${
-                            n.read_at
-                              ? "opacity-65 hover:bg-slate-50"
-                              : "bg-indigo-50/70 hover:bg-indigo-50"
-                          }`}
+                          onClick={markAllAsRead}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-slate-800 truncate">
-                              {n.title}
-                            </span>
-                            {!n.read_at && (
-                              <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">
-                            {n.body}
-                          </p>
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          Tandai semua dibaca
                         </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
+                      )}
+                    </div>
+                    <div data-lenis-prevent className="max-h-64 overflow-y-auto divide-y divide-slate-100 mt-1">
+                      {userNotifications.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-6">
+                          Belum ada notifikasi.
+                        </p>
+                      ) : (
+                        userNotifications.map((n) => (
+                          <button
+                            key={n.id}
+                            type="button"
+                            onClick={() => markAsRead(n.id)}
+                            className={`w-full text-left p-2.5 rounded-xl transition ${
+                              n.read_at
+                                ? "opacity-65 hover:bg-slate-50"
+                                : "bg-indigo-50/70 hover:bg-indigo-50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-slate-800 truncate">
+                                {n.title}
+                              </span>
+                              {!n.read_at && (
+                                <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">
+                              {n.body}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 

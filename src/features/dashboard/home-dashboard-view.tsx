@@ -16,6 +16,7 @@ import {
   canManageEventRoster,
   getSectionAccessMode,
 } from "@/lib/mock-db";
+import { formatDateDisplayWIB } from "@/lib/utils";
 import { TabType } from "@/components/layout/bottom-nav";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -314,7 +315,7 @@ export function HomeDashboardView({
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600 bg-slate-50 rounded-2xl px-4 py-2.5 border border-slate-100">
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="w-4 h-4 text-indigo-500" />
-                {new Date(activeEvent.event_date).toLocaleDateString("id-ID", {
+                {formatDateDisplayWIB(activeEvent.event_date, {
                   weekday: "short",
                   day: "2-digit",
                   month: "short",
@@ -613,7 +614,7 @@ export function HomeDashboardView({
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-500">
-                        {new Date(ev.event_date).toLocaleDateString("id-ID", {
+                        {formatDateDisplayWIB(ev.event_date, {
                           day: "2-digit",
                           month: "short",
                           year: "numeric",

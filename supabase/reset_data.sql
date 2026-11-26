@@ -18,6 +18,9 @@ TRUNCATE TABLE
   public.section_pdd_shotlist,
   public.section_tools_inventory,
   public.event_meeting_notes,
+  public.event_documents,
+  public.event_ministers_structure,
+  public.event_committee_structure,
   public.event_budget_ledger,
   public.event_technical_guides,
   public.timeline_tasks,
@@ -25,9 +28,12 @@ TRUNCATE TABLE
   public.rundown_items,
   public.rundowns,
   public.event_roster,
-  public.events,
-  public.users
+  public.events
 RESTART IDENTITY CASCADE;
+
+-- Bersihkan akun operasional tim sambil mempertahankan akun teknis System Superadmin
+DELETE FROM public.users
+WHERE is_superadmin = FALSE;
 
 COMMIT;
 

@@ -2,6 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { AnimatedNumberBadge } from "@/components/motion/animated-primitives";
+import { SPRING_TAB } from "@/providers/motion-provider";
 import {
   Home,
   Radio,
@@ -130,7 +133,7 @@ export function SidebarNav({
       </div>
 
       {/* Main Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav data-lenis-prevent className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
           Workspace Menu
         </div>
@@ -143,13 +146,20 @@ export function SidebarNav({
               type="button"
               onClick={() => onChangeTab(item.id)}
               className={cn(
-                "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                "relative w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-indigo-50 text-indigo-700 font-semibold shadow-xs"
+                  ? "text-indigo-700 font-semibold"
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               )}
             >
-              <span className="flex items-center gap-3 min-w-0">
+              {isActive && (
+                <motion.span
+                  layoutId="sidebar-active-pill"
+                  transition={SPRING_TAB}
+                  className="absolute inset-0 rounded-xl bg-indigo-50 shadow-xs"
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-3 min-w-0">
                 <Icon
                   className={cn(
                     "w-4 h-4 shrink-0",
@@ -159,22 +169,21 @@ export function SidebarNav({
                 <span className="truncate">{item.label}</span>
               </span>
               {item.liveDot && (
-                <span className="relative flex h-2 w-2 shrink-0">
+                <span className="relative z-10 flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 </span>
               )}
               {item.badge !== undefined && item.badge > 0 && (
-                <span
+                <AnimatedNumberBadge
+                  value={item.badge}
                   className={cn(
-                    "px-2 py-0.5 rounded-full text-[11px] font-bold",
+                    "relative z-10 px-2 py-0.5 rounded-full text-[11px] font-bold",
                     item.id === "timeline"
                       ? "bg-indigo-100 text-indigo-700"
                       : "bg-rose-100 text-rose-700"
                   )}
-                >
-                  {item.badge}
-                </span>
+                />
               )}
             </button>
           );

@@ -781,7 +781,7 @@ export function SectionsView({
               )}
             </div>
 
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
+            <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
               {(["ALL", "PRE_EVENT", "EVENT_DAY", "POST_EVENT"] as const).map((ph) => (
                 <button
                   key={ph}

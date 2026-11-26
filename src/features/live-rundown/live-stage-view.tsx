@@ -2,7 +2,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRealtimeStatus } from "@/providers/realtime-provider";
+import { FADE_FAST } from "@/providers/motion-provider";
 import {
   AppNotification,
   Event,
@@ -97,6 +99,13 @@ export function LiveStageView({
   // Anti-double-tap & idempotency
   const [isCommandInFlight, setIsCommandInFlight] = useState<boolean>(false);
   const processedOpsRef = useRef<Set<string>>(new Set());
+  const commandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (commandTimeoutRef.current) clearTimeout(commandTimeoutRef.current);
+    };
+  }, []);
 
   const runIdempotentCommand = (fn: (operationId: string) => void) => {
     if (isCommandInFlight) return;
@@ -110,7 +119,8 @@ export function LiveStageView({
     try {
       fn(operationId);
     } finally {
-      setTimeout(() => setIsCommandInFlight(false), 400);
+      if (commandTimeoutRef.current) clearTimeout(commandTimeoutRef.current);
+      commandTimeoutRef.current = setTimeout(() => setIsCommandInFlight(false), 350);
     }
   };
 
@@ -171,20 +181,45 @@ export function LiveStageView({
   const activeLeaderName =
     INITIAL_USERS.find((u) => u.id === activeLeaderId)?.full_name || "Event Leader";
 
+  const syncSnapshotRef = useRef({
+    isLeaderOrCo,
+    event,
+    items,
+    logs,
+    clockOffsetMs,
+    activeLeaderId,
+    currentUserId: currentUser?.id,
+    onUpdateEvent,
+    onUpdateItems,
+  });
+  syncSnapshotRef.current = {
+    isLeaderOrCo,
+    event,
+    items,
+    logs,
+    clockOffsetMs,
+    activeLeaderId,
+    currentUserId: currentUser?.id,
+    onUpdateEvent,
+    onUpdateItems,
+  };
+  const desyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const broadcastLeaderHeartbeat = () => {
-    if (!isLeaderOrCo) return;
+    const snap = syncSnapshotRef.current;
+    if (!snap.isLeaderOrCo) return;
     const payload: LeaderHeartbeatPayload = {
-      eventId: event.id,
-      leaderId: currentUser?.id || activeLeaderId,
+      eventId: snap.event.id,
+      leaderId: snap.currentUserId || snap.activeLeaderId,
       leaderNowMs: Date.now(),
-      event,
-      items,
-      logs,
+      event: snap.event,
+      items: snap.items,
+      logs: snap.logs,
     };
     publishSyncMessage("CT_LEADER_HEARTBEAT", payload);
   };
 
-  // Master Clock Heartbeat (Event Leader) & Auto-Resync (Non-Leader)
+  // Master Clock Heartbeat (Event Leader) & Auto-Resync (Non-Leader) — leak-free ref listeners
   useEffect(() => {
     if (isLeaderOrCo && event.live_started_at && !event.live_ended_at) {
       const interval = setInterval(() => {
@@ -193,34 +228,42 @@ export function LiveStageView({
       return () => clearInterval(interval);
     }
     return undefined;
-  }, [isLeaderOrCo, event, items, logs]);
+  }, [isLeaderOrCo, event.id, event.live_started_at, event.live_ended_at]);
 
   useEffect(() => {
     const unsubscribe = subscribeSyncMessages((msg) => {
-      if (msg.key === "CT_REQUEST_LEADER_SYNC" && isLeaderOrCo) {
+      const snap = syncSnapshotRef.current;
+      if (msg.key === "CT_REQUEST_LEADER_SYNC" && snap.isLeaderOrCo) {
         broadcastLeaderHeartbeat();
-      } else if (msg.key === "CT_LEADER_HEARTBEAT" && !isLeaderOrCo) {
+      } else if (msg.key === "CT_LEADER_HEARTBEAT" && !snap.isLeaderOrCo) {
         const hb = msg.payload as LeaderHeartbeatPayload | undefined;
-        if (!hb || hb.eventId !== event.id) return;
+        if (!hb || hb.eventId !== snap.event.id) return;
 
-        const driftMs = Math.abs(Date.now() + clockOffsetMs - hb.leaderNowMs);
+        const driftMs = Math.abs(Date.now() + snap.clockOffsetMs - hb.leaderNowMs);
         const stateMismatch =
-          hb.event.current_item_id !== event.current_item_id ||
-          hb.event.live_paused_at !== event.live_paused_at ||
-          hb.event.total_pause_seconds !== event.total_pause_seconds ||
-          (hb.event.segment_pause_seconds || 0) !== (event.segment_pause_seconds || 0);
+          hb.event.current_item_id !== snap.event.current_item_id ||
+          hb.event.live_paused_at !== snap.event.live_paused_at ||
+          hb.event.total_pause_seconds !== snap.event.total_pause_seconds ||
+          (hb.event.segment_pause_seconds || 0) !== (snap.event.segment_pause_seconds || 0);
 
         if (driftMs > 1500 || stateMismatch) {
           setIsTimeDesynced(true);
           setClockOffsetMs(hb.leaderNowMs - Date.now());
-          onUpdateEvent(hb.event);
-          onUpdateItems(hb.items);
-          setTimeout(() => setIsTimeDesynced(false), 2500);
+          snap.onUpdateEvent(hb.event);
+          snap.onUpdateItems(hb.items);
+          if (desyncTimerRef.current) clearTimeout(desyncTimerRef.current);
+          desyncTimerRef.current = setTimeout(() => setIsTimeDesynced(false), 2500);
         }
       }
     });
-    return () => unsubscribe();
-  }, [isLeaderOrCo, event, items, logs, clockOffsetMs]);
+    return () => {
+      unsubscribe();
+      if (desyncTimerRef.current) {
+        clearTimeout(desyncTimerRef.current);
+        desyncTimerRef.current = null;
+      }
+    };
+  }, [event.id]);
 
   const handleForceSyncToLeader = () => {
     publishSyncMessage("CT_REQUEST_LEADER_SYNC", { eventId: event.id });
@@ -720,30 +763,47 @@ export function LiveStageView({
       )}
 
       {/* Change Queue Live Push Banner */}
-      {recentChangeQueueLog && (
-        <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 shadow-sm">
-          <div className="flex items-center gap-2 text-amber-800 text-xs font-extrabold uppercase tracking-wider">
-            <ArrowUpDown className="w-4 h-4 shrink-0 text-amber-600" />
-            <span>Change Queue Live Push</span>
-          </div>
-          <p className="text-xs text-amber-900 mt-1">{recentChangeQueueLog.description}</p>
-        </div>
-      )}
+      <AnimatePresence>
+        {recentChangeQueueLog && (
+          <motion.div
+            key={recentChangeQueueLog.id}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={FADE_FAST}
+            className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 shadow-sm"
+          >
+            <div className="flex items-center gap-2 text-amber-800 text-xs font-extrabold uppercase tracking-wider">
+              <ArrowUpDown className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>Change Queue Live Push</span>
+            </div>
+            <p className="text-xs text-amber-900 mt-1">{recentChangeQueueLog.description}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* PAUSE Alert Banner */}
-      {isPaused && (
-        <div className="rounded-2xl bg-sky-50 border border-sky-200 p-3.5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sky-800 text-xs font-bold">
-            <Pause className="w-4 h-4 text-sky-600 shrink-0" />
-            <span>TIMER SEDANG DIJEDA (PAUSE / HOLD)</span>
-          </div>
-          {isLeaderOrCo && (
-            <Button size="sm" variant="primary" onClick={handleTogglePause}>
-              Lanjutkan
-            </Button>
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {isPaused && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={FADE_FAST}
+            className="rounded-2xl bg-sky-50 border border-sky-200 p-3.5 flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-2 text-sky-800 text-xs font-bold">
+              <Pause className="w-4 h-4 text-sky-600 shrink-0" />
+              <span>TIMER SEDANG DIJEDA (PAUSE / HOLD)</span>
+            </div>
+            {isLeaderOrCo && (
+              <Button size="sm" variant="primary" onClick={handleTogglePause}>
+                Lanjutkan
+              </Button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main 2-column Responsive Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -926,7 +986,7 @@ export function LiveStageView({
               </span>
             </div>
 
-            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+            <div data-lenis-prevent className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
               {logs.length === 0 ? (
                 <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-100">
                   Belum ada log kejadian atau kendala.
@@ -977,7 +1037,7 @@ export function LiveStageView({
                 {isEventEnded ? "Semua segmen telah selesai." : "Tidak ada segmen berikutnya."}
               </div>
             ) : (
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              <div data-lenis-prevent className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
                 {upcomingSegments.map((seg, idx) => (
                   <div
                     key={seg.id}
@@ -1014,7 +1074,7 @@ export function LiveStageView({
                 Belum ada segmen yang selesai dijalankan.
               </div>
             ) : (
-              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              <div data-lenis-prevent className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
                 {pastSegments.map((seg) => {
                   const statusLog = segmentLogByItemId.get(seg.id);
                   return (

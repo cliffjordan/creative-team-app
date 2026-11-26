@@ -2,6 +2,9 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
+import { AnimatedNumberBadge } from "@/components/motion/animated-primitives";
+import { FADE_FAST, SPRING_SNAPPY, SPRING_TAB } from "@/providers/motion-provider";
 import {
   Home,
   Radio,
@@ -170,21 +173,33 @@ export function BottomNav({
   return (
     <>
       {/* Mobile Navigation Drawer / Bottom Sheet */}
-      {isDrawerOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Semua Menu Navigasi Mobile"
-          className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end"
-        >
-          {/* Backdrop */}
+      <AnimatePresence>
+        {isDrawerOpen && (
           <div
-            onClick={() => setIsDrawerOpen(false)}
-            className="absolute inset-0 bg-slate-900/45 backdrop-blur-xs"
-          />
+            role="dialog"
+            aria-modal="true"
+            aria-label="Semua Menu Navigasi Mobile"
+            className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end"
+          >
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={FADE_FAST}
+              onClick={() => setIsDrawerOpen(false)}
+              className="absolute inset-0 bg-slate-900/45 backdrop-blur-xs"
+            />
 
-          {/* Scrollable Sheet */}
-          <div className="relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-4 pb-8 shadow-2xl border-t border-slate-200 animate-slide-up">
+            {/* Scrollable Sheet */}
+            <motion.div
+              data-lenis-prevent
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={SPRING_SNAPPY}
+              className="relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-4 pb-8 shadow-2xl border-t border-slate-200"
+            >
             {/* Sheet Header + Drag Handle */}
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
               <div>
@@ -343,9 +358,10 @@ export function BottomNav({
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Fixed Bottom Bar */}
       <nav
@@ -380,16 +396,21 @@ export function BottomNav({
                     <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
                   )}
                   {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 text-[10px] font-bold text-white flex items-center justify-center shadow-sm">
-                      {tab.badge}
-                    </span>
+                    <AnimatedNumberBadge
+                      value={tab.badge}
+                      className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 text-[10px] font-bold text-white flex items-center justify-center shadow-sm"
+                    />
                   )}
                 </div>
                 <span className="text-[10px] mt-1 tracking-tight truncate w-full text-center">
                   {tab.label}
                 </span>
                 {isActive && (
-                  <div className="absolute -bottom-1.5 w-6 h-0.5 rounded-full bg-indigo-600" />
+                  <motion.div
+                    layoutId="bottom-nav-active-pill"
+                    transition={SPRING_TAB}
+                    className="absolute -bottom-1.5 w-6 h-0.5 rounded-full bg-indigo-600"
+                  />
                 )}
               </button>
             );
@@ -414,16 +435,21 @@ export function BottomNav({
                 )}
               />
               {openIncidentsCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center shadow-sm">
-                  {openIncidentsCount}
-                </span>
+                <AnimatedNumberBadge
+                  value={openIncidentsCount}
+                  className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center shadow-sm"
+                />
               )}
             </div>
             <span className="text-[10px] mt-1 tracking-tight truncate w-full text-center">
               Menu
             </span>
             {isMenuActive && (
-              <div className="absolute -bottom-1.5 w-6 h-0.5 rounded-full bg-indigo-600" />
+              <motion.div
+                layoutId="bottom-nav-active-pill"
+                transition={SPRING_TAB}
+                className="absolute -bottom-1.5 w-6 h-0.5 rounded-full bg-indigo-600"
+              />
             )}
           </button>
         </div>

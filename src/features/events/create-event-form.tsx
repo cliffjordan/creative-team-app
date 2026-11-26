@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Sparkles, Clock, UserCheck, Lock, Users } from "lucide-react";
@@ -38,6 +38,7 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
     return INITIAL_USERS.filter((u) => !u.is_superadmin);
   }, [authUsers, users]);
 
+  const submittingRef = useRef(false);
   const [title, setTitle] = useState("");
   const [theme, setTheme] = useState("");
   const [eventDate, setEventDate] = useState("");
@@ -110,45 +111,50 @@ export function CreateEventForm({ users }: CreateEventFormProps) {
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
-    const res = await createEventAction(parsed.data);
-    setSubmitting(false);
-
-    if (!res.success || !res.data) {
-      setError(res.error ?? "Gagal membuat event");
-      return;
-    }
-
-    const createdEvent = res.data;
     try {
-      const savedEvents = localStorage.getItem("CT_EVENTS");
-      const currentEvents = savedEvents
-        ? (JSON.parse(savedEvents) as Event[])
-        : INITIAL_EVENTS;
-      const nextEvents = [
-        createdEvent,
-        ...currentEvents.filter((ev) => ev.id !== createdEvent.id),
-      ];
-      localStorage.setItem("CT_EVENTS", JSON.stringify(nextEvents));
-      publishSyncMessage("CT_EVENTS", nextEvents);
+      const res = await createEventAction(parsed.data);
+      if (!res.success || !res.data) {
+        setError(res.error ?? "Gagal membuat event");
+        return;
+      }
 
-      const savedRoster = localStorage.getItem("CT_ROSTER");
-      const currentRoster = savedRoster
-        ? (JSON.parse(savedRoster) as EventRosterMember[])
-        : INITIAL_ROSTER;
-      const newEntries = res.roster ?? [];
-      const mergedRoster = [
-        ...newEntries,
-        ...currentRoster.filter((r) => r.event_id !== createdEvent.id),
-      ];
-      localStorage.setItem("CT_ROSTER", JSON.stringify(mergedRoster));
-      publishSyncMessage("CT_ROSTER", mergedRoster);
-    } catch {
-      // ignore localStorage sync errors
+      const createdEvent = res.data;
+      try {
+        const savedEvents = localStorage.getItem("CT_EVENTS");
+        const currentEvents = savedEvents
+          ? (JSON.parse(savedEvents) as Event[])
+          : INITIAL_EVENTS;
+        const nextEvents = [
+          createdEvent,
+          ...currentEvents.filter((ev) => ev.id !== createdEvent.id),
+        ];
+        localStorage.setItem("CT_EVENTS", JSON.stringify(nextEvents));
+        publishSyncMessage("CT_EVENTS", nextEvents);
+
+        const savedRoster = localStorage.getItem("CT_ROSTER");
+        const currentRoster = savedRoster
+          ? (JSON.parse(savedRoster) as EventRosterMember[])
+          : INITIAL_ROSTER;
+        const newEntries = res.roster ?? [];
+        const mergedRoster = [
+          ...newEntries,
+          ...currentRoster.filter((r) => r.event_id !== createdEvent.id),
+        ];
+        localStorage.setItem("CT_ROSTER", JSON.stringify(mergedRoster));
+        publishSyncMessage("CT_ROSTER", mergedRoster);
+      } catch {
+        // ignore localStorage sync errors
+      }
+
+      router.push(`/events/${res.data.id}`);
+      router.refresh();
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
-
-    router.push(`/events/${res.data.id}`);
-    router.refresh();
   }
 
   if (isLoading && !effectiveUser) {

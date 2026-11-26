@@ -214,7 +214,7 @@ export function MeetingNotesView({
       </div>
 
       {/* Filter Pills */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
         {(["ALL", "PRE_EVENT_COORDINATION", "TECHNICAL_MEETING", "POST_EVALUATION"] as const).map(
           (type) => (
             <button

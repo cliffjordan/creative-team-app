@@ -567,7 +567,7 @@ export function EvaluationView({
         title="Laporan Pertanggungjawaban (LPJ)"
         description="Format laporan resmi yang dapat diedit sebelum dicetak / diekspor ke PDF."
       >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <div data-lenis-prevent className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-800 text-xs space-y-3 font-sans">
             <div className="text-center border-b border-slate-200 pb-2.5">
               <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">

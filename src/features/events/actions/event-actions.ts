@@ -679,16 +679,35 @@ export async function assignRosterAction(
       };
       demoRoster.push(newMember);
       revalidatePath(`/events/${parsed.data.event_id}`);
+      revalidatePath("/events");
+      revalidatePath("/");
       return { success: true, data: newMember };
     }
 
     const supabase = createServerClient();
-    const { data: existingEntry } = await supabase
-      .from("event_roster")
-      .select("id, section")
-      .eq("event_id", parsed.data.event_id)
-      .eq("user_id", parsed.data.user_id)
-      .maybeSingle();
+    const [{ data: targetUser }, { data: existingEntry }] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, is_superadmin")
+        .eq("id", parsed.data.user_id)
+        .maybeSingle(),
+      supabase
+        .from("event_roster")
+        .select("id, section")
+        .eq("event_id", parsed.data.event_id)
+        .eq("user_id", parsed.data.user_id)
+        .maybeSingle(),
+    ]);
+
+    if (!targetUser) {
+      return { success: false, error: "Akun anggota target tidak ditemukan." };
+    }
+    if (targetUser.is_superadmin) {
+      return {
+        success: false,
+        error: "Akun teknis Superadmin tidak dapat ditugaskan ke dalam roster event.",
+      };
+    }
 
     if (existingEntry) {
       return {
@@ -726,6 +745,8 @@ export async function assignRosterAction(
     }
 
     revalidatePath(`/events/${parsed.data.event_id}`);
+    revalidatePath("/events");
+    revalidatePath("/");
     return { success: true, data: data as EventRosterMember };
   } catch (err) {
     return {
@@ -812,6 +833,8 @@ export async function rollRosterSectionAction(params: {
     }
 
     revalidatePath(`/events/${params.event_id}`);
+    revalidatePath("/events");
+    revalidatePath("/");
     return { success: true, data: data as EventRosterMember };
   } catch (err) {
     return {
@@ -840,6 +863,8 @@ export async function removeRosterAction(
       demoRoster.splice(idx, 1);
     }
     revalidatePath(`/events/${eventId}`);
+    revalidatePath("/events");
+    revalidatePath("/");
     return { success: true };
   }
 
@@ -870,6 +895,8 @@ export async function removeRosterAction(
     }
 
     revalidatePath(`/events/${eventId}`);
+    revalidatePath("/events");
+    revalidatePath("/");
     return { success: true };
   } catch (err) {
     return {

@@ -6,6 +6,20 @@ const PROTECTED_PREFIXES = ["/events", "/cue-cards", "/profile", "/superadmin"];
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  if (pathname.startsWith("/api/")) {
+    const method = request.method.toUpperCase();
+    if (method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE") {
+      const origin = request.headers.get("origin");
+      if (origin && origin !== request.nextUrl.origin) {
+        return NextResponse.json(
+          { success: false, error: "Forbidden: Cross-origin request tidak diizinkan." },
+          { status: 403 }
+        );
+      }
+    }
+    return NextResponse.next();
+  }
+
   if (pathname === "/superadmin/login") {
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
     const session = await verifySessionToken(token);
@@ -43,5 +57,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/events/:path*", "/cue-cards/:path*", "/profile/:path*", "/superadmin/:path*"],
+  matcher: ["/events/:path*", "/cue-cards/:path*", "/profile/:path*", "/superadmin/:path*", "/api/:path*"],
 };

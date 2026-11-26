@@ -268,10 +268,37 @@ export const MinisterRowSchema = z.object({
   notes: z.string().max(500).nullable().optional(),
 });
 
+export const BriefSectionScopeSchema = z.enum([
+  "FULL",
+  "OVERVIEW",
+  "ACARA",
+  "DEKORASI",
+  "PERLENGKAPAN",
+  "PDD",
+  "BUDGET",
+  "SEKRETARIAT",
+  "RUNDOWN",
+  "TECHNICAL",
+  "APPROVAL",
+]);
+
 export const SaveDocumentSchema = z.object({
   document_data: z.record(z.unknown()),
   org_chart_url: SafeHttpUrlSchema,
+  section_scope: BriefSectionScopeSchema.optional(),
 });
+
+export function validateDocumentUrls(docData: Record<string, unknown>): string | null {
+  for (const field of ["decorImageUrl", "orgChartUrl"] as const) {
+    if (field in docData && docData[field] !== undefined && docData[field] !== null && docData[field] !== "") {
+      const res = SafeHttpUrlSchema.safeParse(docData[field]);
+      if (!res.success) {
+        return res.error.issues[0]?.message || `URL ${field} tidak valid`;
+      }
+    }
+  }
+  return null;
+}
 
 export const CreateShotlistSchema = z.object({
   event_id: z.string().uuid(),

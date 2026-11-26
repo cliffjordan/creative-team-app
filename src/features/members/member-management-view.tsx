@@ -300,7 +300,7 @@ export function MemberManagementView({
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
+        <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
           {[
             { id: "ALL", label: `Semua (${operationalUsers.length})` },
             { id: "PENDING", label: `Menunggu Role (${pendingCount})` },

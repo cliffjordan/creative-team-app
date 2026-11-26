@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { SPRING_TAB } from "@/providers/motion-provider";
 import {
   Event,
   EventCommitteeMember,
@@ -326,7 +328,7 @@ export function SecretariatView({
       )}
 
       {/* 3 Sub-Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div data-lenis-prevent className="flex gap-2 overflow-x-auto pb-1">
         {[
           { id: "NOTULENSI", label: "1. Notulensi Rapat", icon: FileText },
           {
@@ -347,14 +349,21 @@ export function SecretariatView({
               key={tab.id}
               type="button"
               onClick={() => setSubTab(tab.id as SecretariatSubTab)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
+              className={`relative inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-colors ${
                 active
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-xs"
+                  ? "border-indigo-600 text-white"
                   : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
+              {active && (
+                <motion.span
+                  layoutId="secretariat-subtab"
+                  transition={SPRING_TAB}
+                  className="absolute inset-0 rounded-[11px] bg-indigo-600 shadow-xs"
+                />
+              )}
+              <Icon className="relative z-10 w-3.5 h-3.5" />
+              <span className="relative z-10">{tab.label}</span>
             </button>
           );
         })}

@@ -433,7 +433,7 @@ export function CalendarView({
         <div className="lg:col-span-9">
           {viewMode === "WEEK" ? (
             <Card className="p-0 overflow-hidden">
-              <div className="overflow-x-auto">
+              <div data-lenis-prevent className="overflow-x-auto">
                 <div className="min-w-[700px]">
                   {/* Day Headers */}
                   <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50">
@@ -498,7 +498,7 @@ export function CalendarView({
                   </div>
 
                   {/* Hourly Time Grid */}
-                  <div className="max-h-[540px] overflow-y-auto divide-y divide-slate-100 relative">
+                  <div data-lenis-prevent className="max-h-[540px] overflow-y-auto divide-y divide-slate-100 relative">
                     {HOURS.map((hour) => {
                       const isCurrentHour = hour === nowHour;
                       return (

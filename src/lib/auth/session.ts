@@ -13,11 +13,16 @@ export interface SessionPayload {
 }
 
 function getSecret(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "creative-team-dev-secret-change-in-prod"
-  );
+  const secret = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Missing SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY in production environment."
+      );
+    }
+    return "creative-team-dev-secret-local-only";
+  }
+  return secret;
 }
 
 function toBase64Url(bytes: Uint8Array): string {

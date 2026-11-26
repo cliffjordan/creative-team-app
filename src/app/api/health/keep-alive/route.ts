@@ -12,7 +12,7 @@ const NO_CACHE_HEADERS = {
 function isAuthorizedRequest(request: Request): boolean {
   const configuredSecret = process.env.CRON_SECRET?.trim();
   if (!configuredSecret) {
-    return true;
+    return process.env.NODE_ENV !== "production";
   }
 
   const authHeader = request.headers.get("authorization") ?? "";
@@ -62,12 +62,13 @@ export async function GET(request: Request) {
       .limit(1);
 
     if (error) {
+      console.error("[keep-alive] Supabase ping failed:", error.message);
       return NextResponse.json(
         {
           ok: false,
           service: "creative-team-supabase-keep-alive",
           dbReachable: false,
-          error: error.message,
+          error: "Database ping failed",
           latencyMs: Date.now() - startedAt,
           timestamp,
         },
@@ -86,12 +87,13 @@ export async function GET(request: Request) {
       { status: 200, headers: NO_CACHE_HEADERS }
     );
   } catch (err) {
+    console.error("[keep-alive] Exception:", err instanceof Error ? err.message : err);
     return NextResponse.json(
       {
         ok: false,
         service: "creative-team-supabase-keep-alive",
         dbReachable: false,
-        error: err instanceof Error ? err.message : "Database ping failed",
+        error: "Database ping failed",
         latencyMs: Date.now() - startedAt,
         timestamp,
       },

@@ -367,7 +367,7 @@ export function FinanceView({ currentUser, activeEvent = INITIAL_EVENT }: Financ
       </div>
 
       {/* Section Filter */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
         {(["ALL", "DEKORASI", "ACARA", "PERLENGKAPAN", "PDD", "INTI"] as const).map((sec) => (
           <button
             key={sec}
@@ -391,7 +391,7 @@ export function FinanceView({ currentUser, activeEvent = INITIAL_EVENT }: Financ
         </Card>
       ) : (
         <Card className="p-0 overflow-hidden border-slate-300 shadow-sm">
-          <div className="overflow-x-auto">
+          <div data-lenis-prevent className="overflow-x-auto">
             <table className="w-full border-collapse text-xs text-slate-900 min-w-[820px]">
               <thead>
                 <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300">

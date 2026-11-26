@@ -416,7 +416,7 @@ export function RosterManagerView({
       </div>
 
       {/* Section Filter */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
         <button
           type="button"
           onClick={() => setActiveSection("ALL_VIEW")}

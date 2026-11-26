@@ -2,8 +2,10 @@
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { User } from "@/types/domain";
 import { Delete, UserCheck, AlertTriangle, Search, UserPlus } from "lucide-react";
+import { SPRING_SNAPPY } from "@/providers/motion-provider";
 import { cn } from "@/lib/utils";
 
 interface PinLoginFormProps {
@@ -18,6 +20,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [shakeKey, setShakeKey] = useState<number>(0);
 
   const operationalUsers = useMemo(
     () => users.filter((u) => !u.is_superadmin),
@@ -91,6 +94,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
 
     const nextFailed = failedAttempts + 1;
     setFailedAttempts(nextFailed);
+    setShakeKey((prev) => prev + 1);
     setPin("");
     if (nextFailed >= 5) {
       setIsLocked(true);
@@ -143,7 +147,7 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
               />
             </div>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            <div data-lenis-prevent className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
               {filteredUsers.map((user) => {
                 const initials = user.full_name
                   .split(" ")
@@ -211,22 +215,30 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
       </div>
 
       {/* PIN Indicators */}
-      <div className="flex items-center gap-4 my-4" aria-label="Indikator 4 digit PIN">
+      <motion.div
+        key={shakeKey}
+        animate={shakeKey > 0 ? { x: [0, -8, 8, -6, 6, 0] } : { x: 0 }}
+        transition={{ duration: 0.24 }}
+        className="flex items-center gap-4 my-4"
+        aria-label="Indikator 4 digit PIN"
+      >
         {[0, 1, 2, 3].map((idx) => {
           const isFilled = pin.length > idx;
           return (
-            <div
+            <motion.div
               key={idx}
+              animate={{ scale: isFilled ? 1.15 : 1 }}
+              transition={SPRING_SNAPPY}
               className={cn(
-                "w-4 h-4 rounded-full border-2 transition-all duration-200",
+                "w-4 h-4 rounded-full border-2 transition-colors duration-150",
                 isFilled
-                  ? "bg-indigo-600 border-indigo-600 scale-110 shadow-sm shadow-indigo-600/30"
+                  ? "bg-indigo-600 border-indigo-600 shadow-sm shadow-indigo-600/30"
                   : "border-slate-300 bg-slate-100"
               )}
             />
           );
         })}
-      </div>
+      </motion.div>
 
       {errorMsg && (
         <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 p-3 rounded-xl w-full mb-3">
@@ -238,34 +250,40 @@ export function PinLoginForm({ users, onSuccessLogin }: PinLoginFormProps) {
       {/* Keypad */}
       <div className="grid grid-cols-3 gap-2.5 w-full max-w-[280px]">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
-          <button
+          <motion.button
             key={num}
             type="button"
+            whileTap={{ scale: 0.94 }}
+            transition={SPRING_SNAPPY}
             disabled={isLocked}
             onClick={() => handleKeyPress(num)}
-            className="h-14 rounded-2xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-900 font-bold text-xl active:scale-95 transition disabled:opacity-40"
+            className="h-14 rounded-2xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-900 font-bold text-xl transition disabled:opacity-40"
           >
             {num}
-          </button>
+          </motion.button>
         ))}
         <div />
-        <button
+        <motion.button
           type="button"
+          whileTap={{ scale: 0.94 }}
+          transition={SPRING_SNAPPY}
           disabled={isLocked}
           onClick={() => handleKeyPress("0")}
-          className="h-14 rounded-2xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-900 font-bold text-xl active:scale-95 transition disabled:opacity-40"
+          className="h-14 rounded-2xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-900 font-bold text-xl transition disabled:opacity-40"
         >
           0
-        </button>
-        <button
+        </motion.button>
+        <motion.button
           type="button"
+          whileTap={{ scale: 0.94 }}
+          transition={SPRING_SNAPPY}
           disabled={isLocked || pin.length === 0}
           onClick={handleDelete}
           aria-label="Hapus digit PIN"
-          className="h-14 rounded-2xl bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-600 hover:text-rose-600 flex items-center justify-center active:scale-95 transition disabled:opacity-40"
+          className="h-14 rounded-2xl bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-600 hover:text-rose-600 flex items-center justify-center transition disabled:opacity-40"
         >
           <Delete className="w-5 h-5" />
-        </button>
+        </motion.button>
       </div>
     </div>
   );

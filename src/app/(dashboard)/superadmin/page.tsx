@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
+import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { SuperadminMaintenanceView } from "@/features/superadmin/superadmin-maintenance-view";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,19 @@ export default async function SuperadminPage() {
   }
   if (!session.isSuperadmin) {
     redirect("/");
+  }
+
+  if (isSupabaseConfigured()) {
+    const supabase = createServerClient();
+    const { data: actor } = await supabase
+      .from("users")
+      .select("id, is_superadmin")
+      .eq("id", session.userId)
+      .maybeSingle();
+
+    if (!actor?.is_superadmin) {
+      redirect("/superadmin/login");
+    }
   }
 
   return (

@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useGSAP } from "@gsap/react";
 import {
   ArrowRight,
   CalendarClock,
@@ -233,11 +236,59 @@ const WORKFLOW_STEPS = [
 const EASE_EDITORIAL = [0.22, 1, 0.36, 1] as const;
 
 export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [segmentIndex, setSegmentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [elapsedSec, setElapsedSec] = useState(64);
   const [activeRole, setActiveRole] = useState<string>("leader");
+
+  useGSAP(
+    () => {
+      if (typeof window === "undefined") return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+      gsap.registerPlugin(ScrollTrigger);
+
+      gsap.from(".gsap-hero-cell", {
+        opacity: 0,
+        y: 22,
+        duration: 0.65,
+        stagger: 0.12,
+        ease: "power3.out",
+        clearProps: "transform",
+      });
+
+      gsap.from(".gsap-feature-card", {
+        opacity: 0,
+        y: 20,
+        duration: 0.55,
+        stagger: 0.08,
+        ease: "power3.out",
+        clearProps: "transform",
+        scrollTrigger: {
+          trigger: "#fitur",
+          start: "top 82%",
+          once: true,
+        },
+      });
+
+      gsap.from(".gsap-workflow-step", {
+        opacity: 0,
+        y: 18,
+        duration: 0.5,
+        stagger: 0.09,
+        ease: "power3.out",
+        clearProps: "transform",
+        scrollTrigger: {
+          trigger: "#alur",
+          start: "top 84%",
+          once: true,
+        },
+      });
+    },
+    { scope: containerRef }
+  );
 
   const currentSegment = DEMO_SEGMENTS[segmentIndex];
   const currentRoleSpec = ROLE_SPECS.find((r) => r.id === activeRole) ?? ROLE_SPECS[0];
@@ -264,7 +315,10 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
   const progressPct = Math.min(100, Math.round((elapsedSec / currentSegment.durationSec) * 100));
 
   return (
-    <div className="min-h-screen bg-[#FAF9F5] text-slate-900 overflow-x-hidden selection:bg-indigo-600 selection:text-white">
+    <div
+      ref={containerRef}
+      className="min-h-screen bg-[#FAF9F5] text-slate-900 overflow-x-hidden selection:bg-indigo-600 selection:text-white"
+    >
       {/* Top 4-Spectrum Prism Hairline Accent */}
       <div
         aria-hidden="true"
@@ -407,12 +461,7 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
         <section className="border-b border-slate-900/15">
           <div className="mx-auto grid max-w-7xl grid-cols-1 lg:grid-cols-12">
             {/* Hero Left Cell */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
-              className="flex flex-col justify-between px-4 py-10 sm:px-8 sm:py-14 lg:col-span-7 lg:border-r lg:border-slate-900/15 lg:px-10 lg:py-16"
-            >
+            <div className="gsap-hero-cell flex flex-col justify-between px-4 py-10 sm:px-8 sm:py-14 lg:col-span-7 lg:border-r lg:border-slate-900/15 lg:px-10 lg:py-16">
               <div>
                 {/* Monospace Eyebrow */}
                 <div className="inline-flex items-center gap-2.5 rounded-full border border-slate-900/15 bg-white px-3.5 py-1.5 shadow-xs">
@@ -499,15 +548,10 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
                   <p className="mt-1 text-sm font-semibold text-slate-900">Supabase + RLS</p>
                 </div>
               </div>
-            </motion.div>
+            </div>
 
             {/* Hero Right Cell: Interactive Live Stage Console Preview */}
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.1, ease: EASE_EDITORIAL }}
-              className="flex flex-col justify-center bg-[#F3F1EA]/80 px-4 py-10 sm:px-8 sm:py-12 lg:col-span-5 lg:px-8"
-            >
+            <div className="gsap-hero-cell flex flex-col justify-center bg-[#F3F1EA]/80 px-4 py-10 sm:px-8 sm:py-12 lg:col-span-5 lg:px-8">
               <div className="mb-3 flex items-center justify-between px-1">
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                   SIMULASI LIVE STAGE CONSOLE
@@ -655,7 +699,7 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
         </section>
 
@@ -683,13 +727,9 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
               {FEATURE_QUADRANTS.map((item, index) => {
                 const Icon = item.icon;
                 return (
-                  <motion.article
+                  <article
                     key={item.index}
-                    initial={{ opacity: 0, y: 18 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.2 }}
-                    transition={{ duration: 0.5, delay: index * 0.06, ease: EASE_EDITORIAL }}
-                    className={`group flex flex-col justify-between border-b border-slate-900/15 p-6 transition-colors sm:p-8 lg:p-10 md:odd:border-r ${item.borderHover} ${
+                    className={`gsap-feature-card group flex flex-col justify-between border-b border-slate-900/15 p-6 transition-colors sm:p-8 lg:p-10 md:odd:border-r ${item.borderHover} ${
                       index >= 2 ? "md:border-b-0" : ""
                     }`}
                   >
@@ -728,7 +768,7 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
                         </li>
                       ))}
                     </ul>
-                  </motion.article>
+                  </article>
                 );
               })}
             </div>
@@ -861,13 +901,9 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
 
             <div className="mt-8 grid grid-cols-1 overflow-hidden rounded-2xl border border-slate-900/15 bg-white sm:grid-cols-2 lg:grid-cols-4">
               {WORKFLOW_STEPS.map((item, idx) => (
-                <motion.div
+                <div
                   key={item.step}
-                  initial={{ opacity: 0, y: 16 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.2 }}
-                  transition={{ duration: 0.45, delay: idx * 0.08, ease: EASE_EDITORIAL }}
-                  className={`flex flex-col justify-between p-6 ${
+                  className={`gsap-workflow-step flex flex-col justify-between p-6 ${
                     idx < WORKFLOW_STEPS.length - 1
                       ? "border-b border-slate-900/10 lg:border-b-0 lg:border-r"
                       : ""
@@ -890,7 +926,7 @@ export function ImmersiveLandingView({ onOpenLogin }: ImmersiveLandingViewProps)
                     className="mt-6 h-1 w-10 rounded-full"
                     style={{ backgroundColor: item.color }}
                   />
-                </motion.div>
+                </div>
               ))}
             </div>
           </div>

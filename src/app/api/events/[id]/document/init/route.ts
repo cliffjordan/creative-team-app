@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { createServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getServerSession } from "@/lib/auth/session";
+import { SaveDocumentSchema, validateDocumentUrls } from "@/lib/validators/schemas";
 import { getTodayIsoWIB } from "@/lib/utils";
 import { SectionType } from "@/types/domain";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(
   request: Request,
   context: { params: { id: string } }
 ) {
+  noStore();
   const session = await getServerSession();
   if (!session) {
     return NextResponse.json(
@@ -17,11 +23,38 @@ export async function POST(
   }
 
   const eventId = context.params.id;
-  let body: { document_data?: Record<string, unknown>; org_chart_url?: string | null } = {};
+  let parsedBody: { document_data: Record<string, unknown>; org_chart_url?: string | null } = {
+    document_data: {},
+    org_chart_url: null,
+  };
   try {
-    body = await request.json();
+    const raw = await request.text();
+    if (raw.trim()) {
+      const json = JSON.parse(raw);
+      const parsed = SaveDocumentSchema.safeParse({
+        document_data: json?.document_data ?? {},
+        org_chart_url: json?.org_chart_url ?? null,
+      });
+      if (!parsed.success) {
+        return NextResponse.json(
+          { success: false, error: parsed.error.issues[0]?.message || "Data dokumen tidak valid" },
+          { status: 400 }
+        );
+      }
+      const urlErr = validateDocumentUrls(parsed.data.document_data);
+      if (urlErr) {
+        return NextResponse.json({ success: false, error: urlErr }, { status: 400 });
+      }
+      parsedBody = {
+        document_data: parsed.data.document_data,
+        org_chart_url: parsed.data.org_chart_url ?? null,
+      };
+    }
   } catch {
-    body = {};
+    return NextResponse.json(
+      { success: false, error: "Format payload inisiasi tidak valid." },
+      { status: 400 }
+    );
   }
 
   if (!isSupabaseConfigured()) {
@@ -111,8 +144,8 @@ export async function POST(
         document: {
           id: `doc-${eventId}`,
           event_id: eventId,
-          document_data: body.document_data ?? {},
-          org_chart_url: body.org_chart_url ?? null,
+          document_data: parsedBody.document_data,
+          org_chart_url: parsedBody.org_chart_url ?? null,
           created_by: session.userId,
           updated_by: session.userId,
           tasks_generated: true,
@@ -200,14 +233,31 @@ export async function POST(
       .from("event_documents")
       .insert({
         event_id: eventId,
-        document_data: body.document_data ?? {},
-        org_chart_url: body.org_chart_url ?? null,
+        document_data: parsedBody.document_data,
+        org_chart_url: parsedBody.org_chart_url ?? null,
         created_by: actor.id,
         updated_by: actor.id,
         tasks_generated: true,
       })
       .select("*")
       .single();
+
+    if (insertDocErr?.code === "23505") {
+      const { data: raceDoc } = await supabase
+        .from("event_documents")
+        .select("*")
+        .eq("event_id", eventId)
+        .maybeSingle();
+      return NextResponse.json(
+        {
+          success: false,
+          exists: true,
+          document: raceDoc ?? null,
+          error: "Dokumen untuk event ini sudah dibuat. Memuat versi aktif.",
+        },
+        { status: 409 }
+      );
+    }
 
     if (insertDocErr || !createdDoc) {
       return NextResponse.json(

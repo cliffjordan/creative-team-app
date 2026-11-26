@@ -159,6 +159,21 @@ export interface TechnicalExecutionSection {
   items: string[];
 }
 
+export type DynamicDocumentGroup = TechnicalExecutionSection;
+
+export type BriefSectionScope =
+  | "FULL"
+  | "OVERVIEW"
+  | "ACARA"
+  | "DEKORASI"
+  | "PERLENGKAPAN"
+  | "PDD"
+  | "BUDGET"
+  | "SEKRETARIAT"
+  | "RUNDOWN"
+  | "TECHNICAL"
+  | "APPROVAL";
+
 export interface OperationRecord {
   operation_id: string;
   event_id?: string | null;

@@ -41,7 +41,21 @@ const SENDER_ID =
     ? crypto.randomUUID()
     : `tab-${Math.random().toString(36).slice(2, 10)}`;
 
+const STORAGE_VALID_KEYS: SyncStorageKey[] = [
+  "CT_EVENT",
+  "CT_EVENTS",
+  "CT_ITEMS",
+  "CT_LOGS",
+  "CT_TASKS",
+  "CT_ROSTER",
+  "CT_SECTION_GUIDES",
+  "CT_MEETING_NOTES",
+  "CT_NOTIFICATIONS",
+];
+
 let broadcastChannel: BroadcastChannel | null = null;
+let sharedSupabaseChannel: ReturnType<typeof supabase.channel> | null = null;
+const syncListeners = new Set<(message: SyncMessage) => void>();
 
 function getBroadcastChannel(): BroadcastChannel | null {
   if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") {
@@ -58,6 +72,21 @@ function isSupabaseConfigured(): boolean {
   return Boolean(url && !url.includes("demo.supabase.co"));
 }
 
+function getOrCreateSharedChannel(): ReturnType<typeof supabase.channel> | null {
+  if (!isSupabaseConfigured()) return null;
+  if (!sharedSupabaseChannel) {
+    sharedSupabaseChannel = supabase
+      .channel("ct-live-sync")
+      .on("broadcast", { event: "state_sync" }, (msg) => {
+        const data = msg.payload as SyncMessage | undefined;
+        if (!data || data.senderId === SENDER_ID) return;
+        syncListeners.forEach((listener) => listener(data));
+      })
+      .subscribe();
+  }
+  return sharedSupabaseChannel;
+}
+
 export function publishSyncMessage<T>(key: SyncStorageKey, payload: T): void {
   if (typeof window === "undefined") return;
 
@@ -69,16 +98,15 @@ export function publishSyncMessage<T>(key: SyncStorageKey, payload: T): void {
   };
 
   try {
-    const ch = getBroadcastChannel();
-    ch?.postMessage(message);
+    getBroadcastChannel()?.postMessage(message);
   } catch {
     // Ignore BroadcastChannel errors
   }
 
-  if (isSupabaseConfigured()) {
+  const ch = getOrCreateSharedChannel();
+  if (ch) {
     try {
-      const sbChannel = supabase.channel("ct-live-sync");
-      sbChannel.send({
+      void ch.send({
         type: "broadcast",
         event: "state_sync",
         payload: message,
@@ -96,6 +124,8 @@ export function subscribeSyncMessages(
     return () => {};
   }
 
+  syncListeners.add(onMessage);
+
   const handleChannelMessage = (event: MessageEvent<SyncMessage>) => {
     const data = event.data;
     if (!data || data.senderId === SENDER_ID) return;
@@ -107,18 +137,7 @@ export function subscribeSyncMessages(
 
   const handleStorage = (event: StorageEvent) => {
     if (!event.key || !event.newValue) return;
-    const validKeys: SyncStorageKey[] = [
-      "CT_EVENT",
-      "CT_EVENTS",
-      "CT_ITEMS",
-      "CT_LOGS",
-      "CT_TASKS",
-      "CT_ROSTER",
-      "CT_SECTION_GUIDES",
-      "CT_MEETING_NOTES",
-      "CT_NOTIFICATIONS",
-    ];
-    if (!validKeys.includes(event.key as SyncStorageKey)) return;
+    if (!STORAGE_VALID_KEYS.includes(event.key as SyncStorageKey)) return;
     try {
       const parsed = JSON.parse(event.newValue);
       onMessage({
@@ -133,27 +152,16 @@ export function subscribeSyncMessages(
   };
   window.addEventListener("storage", handleStorage);
 
-  let sbChannel: ReturnType<typeof supabase.channel> | null = null;
-  if (isSupabaseConfigured()) {
-    try {
-      sbChannel = supabase
-        .channel("ct-live-sync")
-        .on("broadcast", { event: "state_sync" }, (msg) => {
-          const data = msg.payload as SyncMessage | undefined;
-          if (!data || data.senderId === SENDER_ID) return;
-          onMessage(data);
-        })
-        .subscribe();
-    } catch {
-      // Ignore Supabase subscribe errors
-    }
-  }
+  getOrCreateSharedChannel();
 
   return () => {
+    syncListeners.delete(onMessage);
     ch?.removeEventListener("message", handleChannelMessage);
     window.removeEventListener("storage", handleStorage);
-    if (sbChannel) {
-      supabase.removeChannel(sbChannel);
+    if (syncListeners.size === 0 && sharedSupabaseChannel) {
+      const stale = sharedSupabaseChannel;
+      sharedSupabaseChannel = null;
+      void supabase.removeChannel(stale);
     }
   };
 }

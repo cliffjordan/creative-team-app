@@ -280,7 +280,7 @@ export function SuperadminMaintenanceView() {
           </p>
         </div>
 
-        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+        <div data-lenis-prevent className="space-y-2 max-h-80 overflow-y-auto pr-1">
           {operationalAccounts.map((acc) => {
             const isLocked =
               acc.locked_until && new Date(acc.locked_until).getTime() > Date.now();
@@ -401,7 +401,7 @@ export function SuperadminMaintenanceView() {
             Belum ada catatan aktivitas sistem.
           </div>
         ) : (
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+          <div data-lenis-prevent className="space-y-2 max-h-96 overflow-y-auto pr-1">
             {logs.map((log) => (
               <div
                 key={log.operation_id}

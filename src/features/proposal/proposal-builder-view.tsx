@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
+  BriefSectionScope,
   Event,
   EventBudgetLedgerItem,
   EventCommitteeMember,
@@ -23,15 +25,25 @@ import {
 import {
   EventProjectBriefData,
   createDefaultBriefForEvent,
-  exportProjectBriefToDocx,
   exportProjectBriefToPdf,
+  formatDocumentGroupItems,
   mergeSyncedEventDataIntoBrief,
+  resolveAcaraSections,
+  resolveAtmosphereItems,
+  resolveDecorSections,
+  resolveFinalDirectionItems,
+  resolveJourneySections,
+  resolveOverviewSections,
+  resolvePddSections,
+  resolveTechRequirementItems,
   resolveTechnicalSections,
 } from "@/lib/proposal/export-proposal-word";
+import { AnimatedCollapse } from "@/components/motion/animated-primitives";
+import { SPRING_TAB } from "@/providers/motion-provider";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrencyIDR } from "@/lib/utils";
+import { fetchWithTimeout, formatCurrencyIDR } from "@/lib/utils";
 import {
   AlertTriangle,
   BookOpen,
@@ -61,6 +73,317 @@ type DocSectionTab =
   | "PERLENGKAPAN_PDD"
   | "BUDGET_SEKRETARIAT"
   | "RUNDOWN_APPROVAL";
+
+const TAB_SCOPED_KEYS: Record<DocSectionTab, Array<keyof EventProjectBriefData>> = {
+  COVER_OVERVIEW: [
+    "eventName",
+    "mainTheme",
+    "scriptureRef",
+    "scriptureQuote",
+    "eventDate",
+    "eventTime",
+    "location",
+    "tagline",
+    "background",
+    "keyMessage",
+    "objectives",
+    "targetAudience",
+    "coreConcept",
+    "overviewSections",
+    "desiredAtmosphere",
+    "atmosphereItems",
+    "journeyBefore",
+    "journeyArrival",
+    "journeyOpening",
+    "journeyMain",
+    "journeyClosing",
+    "journeyAfter",
+    "journeySections",
+  ],
+  ACARA_DEKORASI: [
+    "acaraConcept",
+    "acaraProgram",
+    "acaraSpecialMoment",
+    "acaraTalent",
+    "acaraDuration",
+    "acaraSpecialReq",
+    "acaraSections",
+    "decorConcept",
+    "decorStyle",
+    "decorPalette",
+    "decorKeyVisual",
+    "decorAreas",
+    "decorSpecialReq",
+    "decorImageUrl",
+    "decorItems",
+    "decorSections",
+  ],
+  PERLENGKAPAN_PDD: [
+    "equipmentItems",
+    "techRequirements",
+    "techRequirementItems",
+    "docObjective",
+    "docContent",
+    "docShotlist",
+    "docPlatforms",
+    "docTarget",
+    "pddSections",
+  ],
+  BUDGET_SEKRETARIAT: [
+    "budgetOverview",
+    "budgetDetails",
+    "orgChartUrl",
+    "committee",
+    "ministers",
+  ],
+  RUNDOWN_APPROVAL: [
+    "rundownTotalDuration",
+    "rundownOpenGate",
+    "rundownStartTime",
+    "rundownEndTime",
+    "rundown",
+    "techEvent1",
+    "techEvent2",
+    "techEvent3",
+    "techSpecial1",
+    "techSpecial2",
+    "techSpecial3",
+    "techPerf1",
+    "techPerf2",
+    "techPerf3",
+    "technicalSections",
+    "approvals",
+    "finalCreativeDirection",
+    "finalDirectionItems",
+  ],
+};
+
+function DynamicBriefGroupsEditor({
+  title,
+  subtitle,
+  groups,
+  onChange,
+  addGroupLabel = "Tambah Sub-Bagian",
+  defaultNewTitle,
+  idPrefix = "grp",
+  pointPlaceholder,
+}: {
+  title: string;
+  subtitle?: string;
+  groups: TechnicalExecutionSection[];
+  onChange: (nextGroups: TechnicalExecutionSection[]) => void;
+  addGroupLabel?: string;
+  defaultNewTitle: (nextIdx: number) => string;
+  idPrefix?: string;
+  pointPlaceholder?: (idx: number) => string;
+}) {
+  return (
+    <Card className="p-5 space-y-4 border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+        <div>
+          <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
+          {subtitle && <p className="text-[11px] text-slate-500">{subtitle}</p>}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            onChange([
+              ...groups,
+              {
+                id: `${idPrefix}-${Date.now()}`,
+                title: defaultNewTitle(groups.length + 1),
+                items: [""],
+              },
+            ])
+          }
+          className="text-xs font-bold gap-1"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>{addGroupLabel}</span>
+        </Button>
+      </div>
+
+      <div className="space-y-3.5">
+        <AnimatePresence initial={false}>
+          {groups.map((group, gIdx) => (
+            <AnimatedCollapse
+              key={group.id}
+              className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={group.title}
+                  onChange={(e) =>
+                    onChange(
+                      groups.map((g, idx) =>
+                        idx === gIdx ? { ...g, title: e.target.value } : g
+                      )
+                    )
+                  }
+                  placeholder={defaultNewTitle(gIdx + 1)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-800"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    onChange(
+                      groups.map((g, idx) =>
+                        idx === gIdx ? { ...g, items: [...g.items, ""] } : g
+                      )
+                    )
+                  }
+                  className="text-[11px] gap-1 shrink-0"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Poin</span>
+                </Button>
+                {groups.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange(groups.filter((_, idx) => idx !== gIdx))}
+                    title="Hapus Sub-Bagian"
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white text-rose-500 hover:bg-rose-50 shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1.5 pl-1">
+                <AnimatePresence initial={false}>
+                  {(group.items.length > 0 ? group.items : [""]).map((point, pIdx) => (
+                    <AnimatedCollapse key={`${group.id}-pt-${pIdx}`} className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-slate-400 w-5 text-right shrink-0">
+                        {pIdx + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={point}
+                        onChange={(e) => {
+                          const baseItems = group.items.length > 0 ? group.items : [""];
+                          onChange(
+                            groups.map((g, idx) =>
+                              idx === gIdx
+                                ? {
+                                    ...g,
+                                    items: baseItems.map((it, i) =>
+                                      i === pIdx ? e.target.value : it
+                                    ),
+                                  }
+                                : g
+                            )
+                          );
+                        }}
+                        placeholder={
+                          pointPlaceholder ? pointPlaceholder(pIdx + 1) : `Poin ${pIdx + 1}...`
+                        }
+                        className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800"
+                      />
+                      {(group.items.length > 1 || (group.items.length === 1 && pIdx > 0)) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onChange(
+                              groups.map((g, idx) =>
+                                idx === gIdx
+                                  ? {
+                                      ...g,
+                                      items: g.items.filter((_, i) => i !== pIdx),
+                                    }
+                                  : g
+                              )
+                            )
+                          }
+                          title="Hapus poin"
+                          className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </AnimatedCollapse>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </AnimatedCollapse>
+          ))}
+        </AnimatePresence>
+      </div>
+    </Card>
+  );
+}
+
+function DynamicPointListEditor({
+  title,
+  subtitle,
+  items,
+  onChange,
+  addLabel = "Poin",
+  placeholderPrefix = "Poin",
+}: {
+  title: string;
+  subtitle?: string;
+  items: string[];
+  onChange: (nextItems: string[]) => void;
+  addLabel?: string;
+  placeholderPrefix?: string;
+}) {
+  const safeItems = items.length > 0 ? items : [""];
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-xs font-extrabold text-slate-800">{title}</div>
+          {subtitle && <p className="text-[11px] text-slate-500">{subtitle}</p>}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onChange([...safeItems, ""])}
+          className="text-[11px] gap-1"
+        >
+          <Plus className="w-3 h-3" />
+          <span>{addLabel}</span>
+        </Button>
+      </div>
+      <div className="space-y-1.5">
+        <AnimatePresence initial={false}>
+          {safeItems.map((pt, idx) => (
+            <AnimatedCollapse key={`pt-${idx}`} className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-slate-400 w-5 text-right shrink-0">
+                {idx + 1}.
+              </span>
+              <input
+                type="text"
+                value={pt}
+                onChange={(e) =>
+                  onChange(safeItems.map((old, i) => (i === idx ? e.target.value : old)))
+                }
+                placeholder={`${placeholderPrefix} ${idx + 1}...`}
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800"
+              />
+              {safeItems.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onChange(safeItems.filter((_, i) => i !== idx))}
+                  title="Hapus poin"
+                  className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </AnimatedCollapse>
+          ))}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
 
 export function ProposalBuilderView({
   activeEvent = INITIAL_EVENT,
@@ -174,7 +497,103 @@ export function ProposalBuilderView({
     }
   }, [visibleTabs, step]);
 
+  const initLockRef = useRef(false);
+  const saveLockRef = useRef(false);
+  const docxLockRef = useRef(false);
+
+  const overviewSections = useMemo(() => resolveOverviewSections(data), [data]);
+  const atmosphereItems = useMemo(() => resolveAtmosphereItems(data), [data]);
+  const journeySections = useMemo(() => resolveJourneySections(data), [data]);
+  const acaraSections = useMemo(() => resolveAcaraSections(data), [data]);
+  const decorSections = useMemo(() => resolveDecorSections(data), [data]);
+  const techRequirementItems = useMemo(() => resolveTechRequirementItems(data), [data]);
+  const pddSections = useMemo(() => resolvePddSections(data), [data]);
   const technicalSections = useMemo(() => resolveTechnicalSections(data), [data]);
+  const finalDirectionItems = useMemo(() => resolveFinalDirectionItems(data), [data]);
+
+  const updateOverviewSections = (nextGroups: TechnicalExecutionSection[]) => {
+    const findVal = (id: string, fallbackIdx: number, prevVal: string) => {
+      const grp = nextGroups.find((g) => g.id === id) ?? nextGroups[fallbackIdx];
+      return grp ? formatDocumentGroupItems(grp.items) : prevVal;
+    };
+    setData((prev) => ({
+      ...prev,
+      overviewSections: nextGroups,
+      tagline: findVal("ov-tagline", 2, prev.tagline),
+      background: findVal("ov-background", 3, prev.background),
+      keyMessage: findVal("ov-keymsg", 4, prev.keyMessage),
+      objectives: findVal("ov-objectives", 5, prev.objectives),
+      targetAudience: findVal("ov-audience", 6, prev.targetAudience),
+      coreConcept: findVal("ov-concept", 7, prev.coreConcept),
+    }));
+  };
+
+  const updateAtmosphereItems = (nextItems: string[]) => {
+    setData((prev) => ({
+      ...prev,
+      atmosphereItems: nextItems,
+      desiredAtmosphere: formatDocumentGroupItems(nextItems),
+    }));
+  };
+
+  const updateJourneySections = (nextGroups: TechnicalExecutionSection[]) => {
+    setData((prev) => ({
+      ...prev,
+      journeySections: nextGroups,
+      journeyBefore: formatDocumentGroupItems(nextGroups[0]?.items ?? [prev.journeyBefore]),
+      journeyArrival: formatDocumentGroupItems(nextGroups[1]?.items ?? [prev.journeyArrival]),
+      journeyOpening: formatDocumentGroupItems(nextGroups[2]?.items ?? [prev.journeyOpening]),
+      journeyMain: formatDocumentGroupItems(nextGroups[3]?.items ?? [prev.journeyMain]),
+      journeyClosing: formatDocumentGroupItems(nextGroups[4]?.items ?? [prev.journeyClosing]),
+      journeyAfter: formatDocumentGroupItems(nextGroups[5]?.items ?? [prev.journeyAfter]),
+    }));
+  };
+
+  const updateAcaraSections = (nextGroups: TechnicalExecutionSection[]) => {
+    setData((prev) => ({
+      ...prev,
+      acaraSections: nextGroups,
+      acaraConcept: formatDocumentGroupItems(nextGroups[0]?.items ?? [prev.acaraConcept]),
+      acaraProgram: formatDocumentGroupItems(nextGroups[1]?.items ?? [prev.acaraProgram]),
+      acaraSpecialMoment: formatDocumentGroupItems(nextGroups[2]?.items ?? [prev.acaraSpecialMoment]),
+      acaraTalent: formatDocumentGroupItems(nextGroups[3]?.items ?? [prev.acaraTalent]),
+      acaraDuration: formatDocumentGroupItems(nextGroups[4]?.items ?? [prev.acaraDuration]),
+      acaraSpecialReq: formatDocumentGroupItems(nextGroups[5]?.items ?? [prev.acaraSpecialReq]),
+    }));
+  };
+
+  const updateDecorSections = (nextGroups: TechnicalExecutionSection[]) => {
+    setData((prev) => ({
+      ...prev,
+      decorSections: nextGroups,
+      decorConcept: formatDocumentGroupItems(nextGroups[0]?.items ?? [prev.decorConcept]),
+      decorStyle: formatDocumentGroupItems(nextGroups[1]?.items ?? [prev.decorStyle]),
+      decorPalette: formatDocumentGroupItems(nextGroups[2]?.items ?? [prev.decorPalette]),
+      decorKeyVisual: formatDocumentGroupItems(nextGroups[3]?.items ?? [prev.decorKeyVisual]),
+      decorAreas: formatDocumentGroupItems(nextGroups[4]?.items ?? [prev.decorAreas]),
+      decorSpecialReq: formatDocumentGroupItems(nextGroups[5]?.items ?? [prev.decorSpecialReq]),
+    }));
+  };
+
+  const updateTechRequirementItems = (nextItems: string[]) => {
+    setData((prev) => ({
+      ...prev,
+      techRequirementItems: nextItems,
+      techRequirements: formatDocumentGroupItems(nextItems),
+    }));
+  };
+
+  const updatePddSections = (nextGroups: TechnicalExecutionSection[]) => {
+    setData((prev) => ({
+      ...prev,
+      pddSections: nextGroups,
+      docObjective: formatDocumentGroupItems(nextGroups[0]?.items ?? [prev.docObjective]),
+      docContent: formatDocumentGroupItems(nextGroups[1]?.items ?? [prev.docContent]),
+      docShotlist: formatDocumentGroupItems(nextGroups[2]?.items ?? [prev.docShotlist]),
+      docPlatforms: formatDocumentGroupItems(nextGroups[3]?.items ?? [prev.docPlatforms]),
+      docTarget: formatDocumentGroupItems(nextGroups[4]?.items ?? [prev.docTarget]),
+    }));
+  };
 
   const updateTechnicalSections = (nextGroups: TechnicalExecutionSection[]) => {
     const g0 = nextGroups[0]?.items ?? [];
@@ -192,6 +611,14 @@ export function ProposalBuilderView({
       techPerf1: g2[0] ?? prev.techPerf1,
       techPerf2: g2[1] ?? prev.techPerf2,
       techPerf3: g2[2] ?? prev.techPerf3,
+    }));
+  };
+
+  const updateFinalDirectionItems = (nextItems: string[]) => {
+    setData((prev) => ({
+      ...prev,
+      finalDirectionItems: nextItems,
+      finalCreativeDirection: formatDocumentGroupItems(nextItems),
     }));
   };
 
@@ -318,28 +745,31 @@ export function ProposalBuilderView({
   };
 
   const handleInitiateDocument = async () => {
-    if (!canInitiate || docExists || !activeEvent.id) return;
+    if (!canInitiate || docExists || !activeEvent.id || initLockRef.current) return;
+    initLockRef.current = true;
     setInitiating(true);
     try {
       const syncedInitial = await fetchLatestSyncedData(createDefaultBriefForEvent(activeEvent));
-      const res = await fetch(`/api/events/${activeEvent.id}/document/init`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          document_data: syncedInitial,
-          org_chart_url: syncedInitial.orgChartUrl || null,
-        }),
-      });
+      const res = await fetchWithTimeout(
+        `/api/events/${activeEvent.id}/document/init`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            document_data: syncedInitial,
+            org_chart_url: syncedInitial.orgChartUrl || null,
+          }),
+        },
+        15000
+      );
       const json = await res.json();
       if (res.status === 409 && json?.document) {
         setDocExists(true);
         showToast("success", "Dokumen sudah pernah dibuat sebelumnya; memuat versi aktif.");
-        setInitiating(false);
         return;
       }
       if (!res.ok || !json?.success) {
         showToast("error", json?.error || "Gagal menginisiasi dokumen event.");
-        setInitiating(false);
         return;
       }
 
@@ -356,24 +786,48 @@ export function ProposalBuilderView({
         "Dokumen Event Project Brief dibuat & 6 task otomatis ditugaskan ke Section Leader, Bendahara, dan Sekretaris!"
       );
     } catch {
-      showToast("error", "Gagal terhubung ke server.");
+      showToast("error", "Gagal terhubung ke server atau waktu permintaan habis.");
     } finally {
+      initLockRef.current = false;
       setInitiating(false);
     }
   };
 
+  const resolveScopeForSave = (): BriefSectionScope => {
+    if (isFullBriefManager) return "FULL";
+    if (assignedSection === "ACARA") return step === "RUNDOWN_APPROVAL" ? "TECHNICAL" : "ACARA";
+    if (assignedSection === "DEKORASI") return step === "RUNDOWN_APPROVAL" ? "TECHNICAL" : "DEKORASI";
+    if (assignedSection === "PERLENGKAPAN") return step === "RUNDOWN_APPROVAL" ? "TECHNICAL" : "PERLENGKAPAN";
+    if (assignedSection === "PDD") return step === "RUNDOWN_APPROVAL" ? "TECHNICAL" : "PDD";
+    if (isBendahara) return "BUDGET";
+    if (isSekretaris) return "OVERVIEW";
+    return "FULL";
+  };
+
   const handleSaveDocument = async () => {
-    if (!docExists || !activeEvent.id) return;
+    if (!docExists || !activeEvent.id || saveLockRef.current) return;
+    saveLockRef.current = true;
     setSaving(true);
     try {
-      const res = await fetch(`/api/events/${activeEvent.id}/document`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          document_data: data,
-          org_chart_url: data.orgChartUrl || null,
-        }),
-      });
+      const scopedKeys = TAB_SCOPED_KEYS[step] ?? [];
+      const scopedPayload: Record<string, unknown> = {};
+      for (const k of scopedKeys) {
+        scopedPayload[k as string] = data[k];
+      }
+
+      const res = await fetchWithTimeout(
+        `/api/events/${activeEvent.id}/document`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            document_data: scopedPayload,
+            org_chart_url: step === "BUDGET_SEKRETARIAT" ? data.orgChartUrl || null : undefined,
+            section_scope: resolveScopeForSave(),
+          }),
+        },
+        15000
+      );
       const json = await res.json();
       persistLocal(true, data);
       if (!res.ok || !json?.success) {
@@ -385,6 +839,7 @@ export function ProposalBuilderView({
       persistLocal(true, data);
       showToast("error", "Koneksi gagal; draft disimpan sementara di browser.");
     } finally {
+      saveLockRef.current = false;
       setSaving(false);
     }
   };
@@ -400,14 +855,40 @@ export function ProposalBuilderView({
   };
 
   const handleDownloadDocx = async () => {
+    if (docxLockRef.current) return;
+    docxLockRef.current = true;
     setExportingDocx(true);
     try {
       const synced = await fetchLatestSyncedData(data);
       setData(synced);
-      await exportProjectBriefToDocx(activeEvent.id || "event", synced);
+      const res = await fetchWithTimeout(
+        `/api/events/${activeEvent.id || "event"}/document/export-docx`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(synced),
+        },
+        25000
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Gagal menghasilkan dokumen Word (.docx)");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(synced.eventName || "Event-Project-Brief")
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-|-$/g, "")}-Brief.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       showToast("error", err instanceof Error ? err.message : "Gagal mengunduh .docx");
     } finally {
+      docxLockRef.current = false;
       setExportingDocx(false);
     }
   };
@@ -591,21 +1072,31 @@ export function ProposalBuilderView({
       )}
 
       {/* Section Tabs (Filtered by Role & Section) */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
-        {visibleTabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setStep(tab.id)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
-              step === tab.id
-                ? "bg-indigo-600 border-indigo-600 text-white shadow-xs"
-                : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div data-lenis-prevent className="flex gap-1.5 overflow-x-auto pb-1">
+        {visibleTabs.map((tab) => {
+          const active = step === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setStep(tab.id)}
+              className={`relative px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-colors ${
+                active
+                  ? "border-indigo-600 text-white"
+                  : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              {active && (
+                <motion.span
+                  layoutId="brief-section-tab"
+                  transition={SPRING_TAB}
+                  className="absolute inset-0 rounded-[11px] bg-indigo-600 shadow-xs"
+                />
+              )}
+              <span className="relative z-10">{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* TAB 1: COVER + 01. OVERVIEW + 02. JOURNEY */}
@@ -613,7 +1104,7 @@ export function ProposalBuilderView({
         <div className="space-y-4">
           <Card className="p-5 space-y-3.5 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
-              Halaman Sampul &amp; 01. Project Overview
+              Halaman Sampul (Cover Brief)
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -644,33 +1135,6 @@ export function ProposalBuilderView({
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Tagline</label>
-                <input
-                  type="text"
-                  value={data.tagline}
-                  onChange={(e) => setData({ ...data, tagline: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-bold text-slate-700 block mb-1">Kutipan Ayat Alkitab</label>
-                <input
-                  type="text"
-                  value={data.scriptureQuote}
-                  onChange={(e) => setData({ ...data, scriptureQuote: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Tanggal Pelaksanaan</label>
-                <input
-                  type="text"
-                  value={data.eventDate}
-                  onChange={(e) => setData({ ...data, eventDate: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                />
-              </div>
-              <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">Jam Mulai &amp; Lokasi / Venue</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
@@ -689,92 +1153,59 @@ export function ProposalBuilderView({
                   />
                 </div>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 pt-2">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Background (Latar Belakang)</label>
-                <textarea
-                  rows={3}
-                  value={data.background}
-                  onChange={(e) => setData({ ...data, background: e.target.value })}
+              <div className="sm:col-span-2">
+                <label className="text-xs font-bold text-slate-700 block mb-1">Kutipan Ayat Alkitab</label>
+                <input
+                  type="text"
+                  value={data.scriptureQuote}
+                  onChange={(e) => setData({ ...data, scriptureQuote: e.target.value })}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Key Message</label>
-                  <input
-                    type="text"
-                    value={data.keyMessage}
-                    onChange={(e) => setData({ ...data, keyMessage: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Target Audience</label>
-                  <input
-                    type="text"
-                    value={data.targetAudience}
-                    onChange={(e) => setData({ ...data, targetAudience: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Project Objectives</label>
-                <textarea
-                  rows={3}
-                  value={data.objectives}
-                  onChange={(e) => setData({ ...data, objectives: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Core Concept</label>
-                <textarea
-                  rows={2}
-                  value={data.coreConcept}
-                  onChange={(e) => setData({ ...data, coreConcept: e.target.value })}
+              <div className="sm:col-span-2">
+                <label className="text-xs font-bold text-slate-700 block mb-1">Tanggal Pelaksanaan</label>
+                <input
+                  type="text"
+                  value={data.eventDate}
+                  onChange={(e) => setData({ ...data, eventDate: e.target.value })}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
                 />
               </div>
             </div>
           </Card>
 
-          <Card className="p-5 space-y-3 border-slate-200">
+          <DynamicBriefGroupsEditor
+            title="01. Project Overview (Dinamis)"
+            subtitle="Tambah sub-bagian atau poin penjelasan sesuai kebutuhan brief. Tersinkron ke Word (.docx) & PDF (.pdf)."
+            groups={overviewSections}
+            onChange={updateOverviewSections}
+            defaultNewTitle={(n) => `Poin Overview ${n}`}
+            idPrefix="ov-grp"
+            pointPlaceholder={(idx) => `Isi poin overview ${idx}...`}
+          />
+
+          <Card className="p-5 space-y-4 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
-              02. Event Experience &amp; Participant Journey
+              02. Event Experience &amp; Participant Journey (Dinamis)
             </h3>
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Desired Atmosphere</label>
-              <input
-                type="text"
-                value={data.desiredAtmosphere}
-                onChange={(e) => setData({ ...data, desiredAtmosphere: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs sm:text-sm"
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { key: "journeyBefore", label: "1. Before Event" },
-                { key: "journeyArrival", label: "2. Arrival" },
-                { key: "journeyOpening", label: "3. Opening" },
-                { key: "journeyMain", label: "4. Main Experience" },
-                { key: "journeyClosing", label: "5. Closing" },
-                { key: "journeyAfter", label: "6. After Event" },
-              ].map((item) => (
-                <div key={item.key}>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">{item.label}</label>
-                  <input
-                    type="text"
-                    value={String(data[item.key as keyof EventProjectBriefData] || "")}
-                    onChange={(e) => setData({ ...data, [item.key]: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                </div>
-              ))}
-            </div>
+            <DynamicPointListEditor
+              title="Desired Atmosphere"
+              subtitle="Tambahkan poin suasana / ambience acara yang ingin dibangun."
+              items={atmosphereItems}
+              onChange={updateAtmosphereItems}
+              addLabel="Tambah Poin"
+              placeholderPrefix="Suasana"
+            />
+            <DynamicBriefGroupsEditor
+              title="Participant Journey (Per Tahap)"
+              subtitle="Kelola fase pengalaman peserta secara fleksibel (tambah/hapus fase & poin)."
+              groups={journeySections}
+              onChange={updateJourneySections}
+              addGroupLabel="Tambah Fase"
+              defaultNewTitle={(n) => `Fase ${n}`}
+              idPrefix="jrn-grp"
+              pointPlaceholder={(idx) => `Pengalaman peserta poin ${idx}...`}
+            />
           </Card>
         </div>
       )}
@@ -783,172 +1214,124 @@ export function ProposalBuilderView({
       {step === "ACARA_DEKORASI" && (showAcara || showDekorasi) && (
         <div className="space-y-4">
           {showAcara && (
-          <Card className="p-5 space-y-3 border-slate-200">
-            <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
-              03A. Section — Acara
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Main Concept</label>
-                <input
-                  type="text"
-                  value={data.acaraConcept}
-                  onChange={(e) => setData({ ...data, acaraConcept: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Activity / Program</label>
-                <input
-                  type="text"
-                  value={data.acaraProgram}
-                  onChange={(e) => setData({ ...data, acaraProgram: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Special Moment</label>
-                <input
-                  type="text"
-                  value={data.acaraSpecialMoment}
-                  onChange={(e) => setData({ ...data, acaraSpecialMoment: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Talent / Speaker / Performer</label>
-                <input
-                  type="text"
-                  value={data.acaraTalent}
-                  onChange={(e) => setData({ ...data, acaraTalent: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Estimated Duration</label>
-                <input
-                  type="text"
-                  value={data.acaraDuration}
-                  onChange={(e) => setData({ ...data, acaraDuration: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Special Requirements</label>
-                <input
-                  type="text"
-                  value={data.acaraSpecialReq}
-                  onChange={(e) => setData({ ...data, acaraSpecialReq: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                />
-              </div>
-            </div>
-          </Card>
+            <DynamicBriefGroupsEditor
+              title="03A. Section — Acara (Dinamis)"
+              subtitle="Kelola sub-bagian & poin konsep acara secara dinamis ala Bagian 08."
+              groups={acaraSections}
+              onChange={updateAcaraSections}
+              defaultNewTitle={(n) => `Sub-Bagian Acara ${n}`}
+              idPrefix="acara-grp"
+              pointPlaceholder={(idx) => `Detail acara poin ${idx}...`}
+            />
           )}
 
           {showDekorasi && (
-          <Card className="p-5 space-y-3 border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="text-sm font-extrabold text-slate-900">03B. Section — Dekorasi</h3>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setData({
-                    ...data,
-                    decorItems: [...data.decorItems, { name: "", qty: "1 Set", description: "" }],
-                  })
-                }
-                className="text-xs gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Tambah Item Dekor
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { key: "decorConcept", label: "Decoration Concept" },
-                { key: "decorStyle", label: "Visual Style" },
-                { key: "decorPalette", label: "Color Palette" },
-                { key: "decorKeyVisual", label: "Main Visual / Key Visual" },
-                { key: "decorAreas", label: "Decoration Areas" },
-                { key: "decorSpecialReq", label: "Special Requirements" },
-                { key: "decorImageUrl", label: "Link Mockup / Referensi Dekorasi Panggung" },
-              ].map((f) => (
-                <div key={f.key} className={f.key === "decorImageUrl" ? "sm:col-span-2" : ""}>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">{f.label}</label>
-                  <input
-                    type="text"
-                    value={String(data[f.key as keyof EventProjectBriefData] || "")}
-                    onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                </div>
-              ))}
-            </div>
+            <div className="space-y-4">
+              <DynamicBriefGroupsEditor
+                title="03B. Section — Konsep Dekorasi (Dinamis)"
+                subtitle="Kelola konsep, gaya visual, palet warna, area dekorasi & poin detailnya."
+                groups={decorSections}
+                onChange={updateDecorSections}
+                defaultNewTitle={(n) => `Aspek Dekorasi ${n}`}
+                idPrefix="decor-grp"
+                pointPlaceholder={(idx) => `Detail dekorasi poin ${idx}...`}
+              />
 
-            <div className="space-y-2 pt-2">
-              <div className="text-xs font-bold text-slate-700">Daftar Kebutuhan Item Dekorasi</div>
-              {data.decorItems.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                  <input
-                    type="text"
-                    placeholder="Nama item dekorasi"
-                    value={item.name}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        decorItems: data.decorItems.map((d, i) =>
-                          i === idx ? { ...d, name: e.target.value } : d
-                        ),
-                      })
-                    }
-                    className="sm:col-span-4 rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Qty"
-                    value={item.qty}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        decorItems: data.decorItems.map((d, i) =>
-                          i === idx ? { ...d, qty: e.target.value } : d
-                        ),
-                      })
-                    }
-                    className="sm:col-span-2 rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Keterangan / Fungsi"
-                    value={item.description}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        decorItems: data.decorItems.map((d, i) =>
-                          i === idx ? { ...d, description: e.target.value } : d
-                        ),
-                      })
-                    }
-                    className="sm:col-span-5 rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                  <button
-                    type="button"
+              <Card className="p-5 space-y-3 border-slate-200">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    03B. Referensi Visual &amp; Daftar Kebutuhan Item Dekorasi
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() =>
                       setData({
                         ...data,
-                        decorItems: data.decorItems.filter((_, i) => i !== idx),
+                        decorItems: [...data.decorItems, { name: "", qty: "1 Set", description: "" }],
                       })
                     }
-                    className="sm:col-span-1 p-2 rounded-xl border border-slate-200 text-rose-500 hover:bg-rose-50 flex justify-center"
+                    className="text-xs gap-1"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                    <Plus className="w-3.5 h-3.5" />
+                    Tambah Item Dekor
+                  </Button>
                 </div>
-              ))}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Link Mockup / Referensi Dekorasi Panggung
+                  </label>
+                  <input
+                    type="text"
+                    value={data.decorImageUrl}
+                    onChange={(e) => setData({ ...data, decorImageUrl: e.target.value })}
+                    placeholder="https://..."
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div className="space-y-2 pt-1">
+                  <div className="text-xs font-bold text-slate-700">Daftar Kebutuhan Item Dekorasi</div>
+                  {data.decorItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Nama item dekorasi"
+                        value={item.name}
+                        onChange={(e) =>
+                          setData({
+                            ...data,
+                            decorItems: data.decorItems.map((d, i) =>
+                              i === idx ? { ...d, name: e.target.value } : d
+                            ),
+                          })
+                        }
+                        className="sm:col-span-4 rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Qty"
+                        value={item.qty}
+                        onChange={(e) =>
+                          setData({
+                            ...data,
+                            decorItems: data.decorItems.map((d, i) =>
+                              i === idx ? { ...d, qty: e.target.value } : d
+                            ),
+                          })
+                        }
+                        className="sm:col-span-2 rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Keterangan / Fungsi"
+                        value={item.description}
+                        onChange={(e) =>
+                          setData({
+                            ...data,
+                            decorItems: data.decorItems.map((d, i) =>
+                              i === idx ? { ...d, description: e.target.value } : d
+                            ),
+                          })
+                        }
+                        className="sm:col-span-5 rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setData({
+                            ...data,
+                            decorItems: data.decorItems.filter((_, i) => i !== idx),
+                          })
+                        }
+                        className="sm:col-span-1 p-2 rounded-xl border border-slate-200 text-rose-500 hover:bg-rose-50 flex justify-center"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
             </div>
-          </Card>
           )}
         </div>
       )}
@@ -957,7 +1340,7 @@ export function ProposalBuilderView({
       {step === "PERLENGKAPAN_PDD" && (showPerlengkapan || showPdd) && (
         <div className="space-y-4">
           {showPerlengkapan && (
-          <Card className="p-5 space-y-3 border-slate-200">
+          <Card className="p-5 space-y-4 border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-sm font-extrabold text-slate-900">
                 03C. Section — Perlengkapan &amp; Teknis
@@ -1058,45 +1441,27 @@ export function ProposalBuilderView({
               ))}
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
-                Special Technical Requirements
-              </label>
-              <textarea
-                rows={2}
-                value={data.techRequirements}
-                onChange={(e) => setData({ ...data, techRequirements: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-              />
-            </div>
+            <DynamicPointListEditor
+              title="Special Technical Requirements (Dinamis)"
+              subtitle="Tambahkan catatan & syarat teknis perlengkapan (rehearsal H-1, kabel backup, HT, dll)."
+              items={techRequirementItems}
+              onChange={updateTechRequirementItems}
+              addLabel="Tambah Catatan"
+              placeholderPrefix="Syarat teknis"
+            />
           </Card>
           )}
 
           {showPdd && (
-          <Card className="p-5 space-y-3 border-slate-200">
-            <h3 className="text-sm font-extrabold text-slate-900 border-b border-slate-100 pb-2">
-              03D. Section — Dokumentasi (PDD)
-            </h3>
-            <div className="grid grid-cols-1 gap-3">
-              {[
-                { key: "docObjective", label: "Documentation Objective" },
-                { key: "docContent", label: "Required Content" },
-                { key: "docShotlist", label: "Priority Moments (Shot List)" },
-                { key: "docPlatforms", label: "Publication Platforms" },
-                { key: "docTarget", label: "Output Target" },
-              ].map((f) => (
-                <div key={f.key}>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">{f.label}</label>
-                  <input
-                    type="text"
-                    value={String(data[f.key as keyof EventProjectBriefData] || "")}
-                    onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                  />
-                </div>
-              ))}
-            </div>
-          </Card>
+            <DynamicBriefGroupsEditor
+              title="03D. Section — Dokumentasi / PDD (Dinamis)"
+              subtitle="Kelola objektif, konten, shot list prioritas, platform publikasi, dan target output secara dinamis."
+              groups={pddSections}
+              onChange={updatePddSections}
+              defaultNewTitle={(n) => `Sub-Bagian PDD ${n}`}
+              idPrefix="pdd-grp"
+              pointPlaceholder={(idx) => `Detail PDD poin ${idx}...`}
+            />
           )}
         </div>
       )}
@@ -1122,7 +1487,7 @@ export function ProposalBuilderView({
                 Total: {formatCurrencyIDR(totalOverviewBudget)}
               </span>
             </div>
-            <div className="overflow-x-auto">
+            <div data-lenis-prevent className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700">
@@ -1270,147 +1635,19 @@ export function ProposalBuilderView({
           )}
 
           {showTechnical && (
-          <Card className="p-5 space-y-4 border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  08. Teknis Pelaksanaan (Dinamis)
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Tambah sub-bagian dan poin teknis sesuai kebutuhan event. Tersinkron penuh ke ekspor Word (.docx) dan PDF (.pdf).
-                </p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  updateTechnicalSections([
-                    ...technicalSections,
-                    {
-                      id: `tech-group-${Date.now()}`,
-                      title: `08.${technicalSections.length + 1} Sub-Bagian Teknis Baru`,
-                      items: [""],
-                    },
-                  ])
-                }
-                className="text-xs font-bold gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Sub-Bagian</span>
-              </Button>
-            </div>
-
-            <div className="space-y-4">
-              {technicalSections.map((group, gIdx) => (
-                <div
-                  key={group.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5"
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={group.title}
-                      onChange={(e) =>
-                        updateTechnicalSections(
-                          technicalSections.map((g, idx) =>
-                            idx === gIdx ? { ...g, title: e.target.value } : g
-                          )
-                        )
-                      }
-                      placeholder={`08.${gIdx + 1} Judul Sub-Bagian`}
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-800"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        updateTechnicalSections(
-                          technicalSections.map((g, idx) =>
-                            idx === gIdx ? { ...g, items: [...g.items, ""] } : g
-                          )
-                        )
-                      }
-                      className="text-[11px] gap-1 shrink-0"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>Poin</span>
-                    </Button>
-                    {technicalSections.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateTechnicalSections(
-                            technicalSections.filter((_, idx) => idx !== gIdx)
-                          )
-                        }
-                        title="Hapus Sub-Bagian"
-                        className="p-1.5 rounded-xl border border-slate-200 bg-white text-rose-500 hover:bg-rose-50 shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5 pl-1">
-                    {group.items.map((point, pIdx) => (
-                      <div key={pIdx} className="flex items-center gap-2">
-                        <span className="text-[11px] font-mono text-slate-400 w-5 text-right shrink-0">
-                          {pIdx + 1}.
-                        </span>
-                        <input
-                          type="text"
-                          value={point}
-                          onChange={(e) =>
-                            updateTechnicalSections(
-                              technicalSections.map((g, idx) =>
-                                idx === gIdx
-                                  ? {
-                                      ...g,
-                                      items: g.items.map((it, i) =>
-                                        i === pIdx ? e.target.value : it
-                                      ),
-                                    }
-                                  : g
-                              )
-                            )
-                          }
-                          placeholder={`Poin teknis ${pIdx + 1}...`}
-                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800"
-                        />
-                        {group.items.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateTechnicalSections(
-                                technicalSections.map((g, idx) =>
-                                  idx === gIdx
-                                    ? {
-                                        ...g,
-                                        items: g.items.filter((_, i) => i !== pIdx),
-                                      }
-                                    : g
-                                )
-                              )
-                            }
-                            title="Hapus poin"
-                            className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+            <DynamicBriefGroupsEditor
+              title="08. Teknis Pelaksanaan (Dinamis)"
+              subtitle="Tambah sub-bagian dan poin teknis sesuai kebutuhan event. Tersinkron penuh ke ekspor Word (.docx) dan PDF (.pdf)."
+              groups={technicalSections}
+              onChange={updateTechnicalSections}
+              defaultNewTitle={(n) => `08.${n} Sub-Bagian Teknis Baru`}
+              idPrefix="tech-group"
+              pointPlaceholder={(idx) => `Poin teknis ${idx}...`}
+            />
           )}
 
           {showApproval && (
-          <Card className="p-5 space-y-3 border-slate-200">
+          <Card className="p-5 space-y-4 border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-sm font-extrabold text-slate-900">
                 09. Approval &amp; Final Creative Direction
@@ -1490,17 +1727,14 @@ export function ProposalBuilderView({
                 </div>
               ))}
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
-                Final Creative Direction Statement
-              </label>
-              <textarea
-                rows={3}
-                value={data.finalCreativeDirection}
-                onChange={(e) => setData({ ...data, finalCreativeDirection: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-              />
-            </div>
+            <DynamicPointListEditor
+              title="Final Creative Direction Statement (Dinamis)"
+              subtitle="Poin-poin arahan kreatif final lintas seksi."
+              items={finalDirectionItems}
+              onChange={updateFinalDirectionItems}
+              addLabel="Tambah Poin"
+              placeholderPrefix="Arahan"
+            />
           </Card>
           )}
         </div>

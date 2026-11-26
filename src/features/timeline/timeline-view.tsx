@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { SPRING_TAB } from "@/providers/motion-provider";
+import { formatDateDisplayWIB } from "@/lib/utils";
 import {
   INITIAL_EVENT,
   INITIAL_EVENTS,
@@ -352,20 +355,30 @@ export function TimelineView({
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2.5">
         <div className="flex-1 grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200 text-xs">
-          {(["ALL", "PRE_EVENT", "EVENT_DAY", "POST_EVENT"] as const).map((phase) => (
-            <button
-              key={phase}
-              type="button"
-              onClick={() => setPhaseFilter(phase)}
-              className={`py-1.5 rounded-xl font-bold transition truncate px-1 ${
-                phaseFilter === phase
-                  ? "bg-white text-indigo-700 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              {phase === "ALL" ? "Semua Fase" : phase.replace("_", " ")}
-            </button>
-          ))}
+          {(["ALL", "PRE_EVENT", "EVENT_DAY", "POST_EVENT"] as const).map((phase) => {
+            const active = phaseFilter === phase;
+            return (
+              <button
+                key={phase}
+                type="button"
+                onClick={() => setPhaseFilter(phase)}
+                className={`relative py-1.5 rounded-xl font-bold transition-colors truncate px-1 ${
+                  active ? "text-indigo-700" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="timeline-phase-tab"
+                    transition={SPRING_TAB}
+                    className="absolute inset-0 rounded-xl bg-white shadow-xs"
+                  />
+                )}
+                <span className="relative z-10">
+                  {phase === "ALL" ? "Semua Fase" : phase.replace("_", " ")}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
@@ -392,7 +405,7 @@ export function TimelineView({
 
       {/* Horizontal Event-Task Matrix (Tanpa Milestone Header) */}
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div data-lenis-prevent className="overflow-x-auto">
           <div className="min-w-[820px]">
             {/* Period Month-Year Banner */}
             <div className="flex items-center justify-between px-4 py-2 bg-indigo-50/70 border-b border-slate-200 text-xs">
@@ -441,7 +454,7 @@ export function TimelineView({
                         {ev.title}
                       </span>
                       <span className="text-[10px] opacity-90 font-medium">
-                        {new Date(ev.event_date).toLocaleDateString("id-ID", {
+                        {formatDateDisplayWIB(ev.event_date, {
                           day: "numeric",
                           month: "long",
                           year: "numeric",

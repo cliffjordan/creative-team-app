@@ -51,6 +51,55 @@ export function getTodayIsoWIB(date: Date = new Date()): string {
   }).format(date);
 }
 
+export function formatDateDisplayWIB(
+  rawDate: string | Date | null | undefined,
+  options: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  },
+  fallback = "-"
+): string {
+  if (!rawDate) return fallback;
+  const parsed =
+    rawDate instanceof Date
+      ? rawDate
+      : /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())
+      ? new Date(`${rawDate.trim()}T00:00:00+07:00`)
+      : new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return typeof rawDate === "string" ? rawDate : fallback;
+  }
+  return new Intl.DateTimeFormat("id-ID", {
+    ...options,
+    timeZone: "Asia/Jakarta",
+  }).format(parsed);
+}
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 15000
+): Promise<Response> {
+  const controller = new AbortController();
+  const externalSignal = init.signal;
+  const onAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onAbort);
+  }
+}
+
 export function sanitizeHttpUrl(input?: string | null): string | null {
   if (!input) return null;
   const trimmed = input.trim();

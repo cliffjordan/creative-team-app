@@ -386,7 +386,7 @@ export function McCueCardDeck() {
           <span>Prev</span>
         </Button>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto max-w-[200px] sm:max-w-md py-1">
+        <div data-lenis-prevent className="flex items-center gap-1.5 overflow-x-auto max-w-[200px] sm:max-w-md py-1">
           {slides.map((s, idx) => (
             <button
               key={s.id}

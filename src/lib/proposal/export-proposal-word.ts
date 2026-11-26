@@ -151,9 +151,154 @@ export interface EventProjectBriefData {
   techPerf3: string;
   technicalSections?: TechnicalExecutionSection[];
 
+  // Dinamis seragam ala 08. Teknis Pelaksanaan (opsional, backward-compatible)
+  overviewSections?: TechnicalExecutionSection[];
+  atmosphereItems?: string[];
+  journeySections?: TechnicalExecutionSection[];
+  acaraSections?: TechnicalExecutionSection[];
+  decorSections?: TechnicalExecutionSection[];
+  techRequirementItems?: string[];
+  pddSections?: TechnicalExecutionSection[];
+  finalDirectionItems?: string[];
+
   // 09. Approval & Final Creative Direction
   approvals: BriefApprovalRow[];
   finalCreativeDirection: string;
+}
+
+function splitLegacyLines(raw: string | undefined): string[] {
+  const normalized = String(raw ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return [];
+  return normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function resolveDynamicGroups(
+  groups: TechnicalExecutionSection[] | undefined,
+  legacyRows: Array<{ id: string; title: string; raw: string | undefined }>
+): TechnicalExecutionSection[] {
+  if (Array.isArray(groups) && groups.length > 0) {
+    return groups;
+  }
+  return legacyRows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    items: splitLegacyLines(row.raw),
+  }));
+}
+
+export function formatDocumentGroupItems(items: string[]): string {
+  const valid = items.map((s) => String(s ?? "").trim()).filter((s) => s.length > 0);
+  if (valid.length === 0) return "-";
+  if (valid.length === 1) return valid[0];
+  return valid
+    .map((line, idx) => (/^(?:\d+[.)]\s|[-•]\s)/.test(line) ? line : `${idx + 1}. ${line}`))
+    .join("\n");
+}
+
+function formatDateWIB(rawDate: string | undefined | null, fallback = "Tanggal Acara"): string {
+  if (!rawDate) return fallback;
+  const isoPrefix = /^\d{4}-\d{2}-\d{2}/.test(rawDate) ? rawDate.slice(0, 10) : null;
+  const parsed = isoPrefix ? new Date(`${isoPrefix}T00:00:00+07:00`) : new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) return String(rawDate);
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(parsed);
+}
+
+export function resolveOverviewSections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  const scriptureCombined = [data.scriptureRef, data.scriptureQuote ? `"${data.scriptureQuote}"` : ""]
+    .filter(Boolean)
+    .join(" — ");
+  return resolveDynamicGroups(data.overviewSections, [
+    { id: "ov-theme", title: "Main Theme", raw: data.mainTheme },
+    { id: "ov-scripture", title: "Scripture / Biblical Foundation", raw: scriptureCombined },
+    { id: "ov-tagline", title: "Tagline", raw: data.tagline },
+    { id: "ov-background", title: "Background", raw: data.background },
+    { id: "ov-keymsg", title: "Key Message", raw: data.keyMessage },
+    { id: "ov-objectives", title: "Project Objectives", raw: data.objectives },
+    { id: "ov-audience", title: "Target Audience", raw: data.targetAudience },
+    { id: "ov-concept", title: "Core Concept", raw: data.coreConcept },
+  ]);
+}
+
+export function resolveAtmosphereItems(data: Partial<EventProjectBriefData>): string[] {
+  if (Array.isArray(data.atmosphereItems) && data.atmosphereItems.length > 0) {
+    return data.atmosphereItems;
+  }
+  return splitLegacyLines(data.desiredAtmosphere);
+}
+
+export function resolveJourneySections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  return resolveDynamicGroups(data.journeySections, [
+    { id: "jrn-1", title: "Before Event", raw: data.journeyBefore },
+    { id: "jrn-2", title: "Arrival", raw: data.journeyArrival },
+    { id: "jrn-3", title: "Opening", raw: data.journeyOpening },
+    { id: "jrn-4", title: "Main Experience", raw: data.journeyMain },
+    { id: "jrn-5", title: "Closing", raw: data.journeyClosing },
+    { id: "jrn-6", title: "After Event", raw: data.journeyAfter },
+  ]);
+}
+
+export function resolveAcaraSections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  return resolveDynamicGroups(data.acaraSections, [
+    { id: "acara-1", title: "Main Concept", raw: data.acaraConcept },
+    { id: "acara-2", title: "Activity / Program", raw: data.acaraProgram },
+    { id: "acara-3", title: "Special Moment", raw: data.acaraSpecialMoment },
+    { id: "acara-4", title: "Talent / Speaker / Performer", raw: data.acaraTalent },
+    { id: "acara-5", title: "Estimated Duration", raw: data.acaraDuration },
+    { id: "acara-6", title: "Special Requirements", raw: data.acaraSpecialReq },
+  ]);
+}
+
+export function resolveDecorSections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  return resolveDynamicGroups(data.decorSections, [
+    { id: "decor-1", title: "Decoration Concept", raw: data.decorConcept },
+    { id: "decor-2", title: "Visual Style", raw: data.decorStyle },
+    { id: "decor-3", title: "Color Palette", raw: data.decorPalette },
+    { id: "decor-4", title: "Main Visual / Key Visual", raw: data.decorKeyVisual },
+    { id: "decor-5", title: "Decoration Areas", raw: data.decorAreas },
+    { id: "decor-6", title: "Special Requirements", raw: data.decorSpecialReq },
+  ]);
+}
+
+export function resolveTechRequirementItems(data: Partial<EventProjectBriefData>): string[] {
+  if (Array.isArray(data.techRequirementItems) && data.techRequirementItems.length > 0) {
+    return data.techRequirementItems;
+  }
+  return splitLegacyLines(data.techRequirements);
+}
+
+export function resolvePddSections(
+  data: Partial<EventProjectBriefData>
+): TechnicalExecutionSection[] {
+  return resolveDynamicGroups(data.pddSections, [
+    { id: "pdd-1", title: "Documentation Objective", raw: data.docObjective },
+    { id: "pdd-2", title: "Required Content", raw: data.docContent },
+    { id: "pdd-3", title: "Priority Moments (Shot List)", raw: data.docShotlist },
+    { id: "pdd-4", title: "Publication Platforms", raw: data.docPlatforms },
+    { id: "pdd-5", title: "Output Target", raw: data.docTarget },
+  ]);
+}
+
+export function resolveFinalDirectionItems(data: Partial<EventProjectBriefData>): string[] {
+  if (Array.isArray(data.finalDirectionItems) && data.finalDirectionItems.length > 0) {
+    return data.finalDirectionItems;
+  }
+  return splitLegacyLines(data.finalCreativeDirection);
 }
 
 export function resolveTechnicalSections(
@@ -199,17 +344,11 @@ const DEFAULT_OVERVIEW_CATEGORIES = [
 ];
 
 export function createDefaultBriefForEvent(event: Event): EventProjectBriefData {
-  const formattedDate = event.event_date
-    ? new Date(`${event.event_date}T00:00:00`).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "Tanggal Acara";
+  const formattedDate = formatDateWIB(event.event_date, "Tanggal Acara");
 
   const theme = event.theme || "Tema Utama Acara";
 
-  return {
+  const baseBrief: EventProjectBriefData = {
     eventName: event.title || "Nama Acara & Tahun",
     mainTheme: theme,
     scriptureRef: "Efesus 5:10",
@@ -328,6 +467,18 @@ export function createDefaultBriefForEvent(event: Event): EventProjectBriefData 
     ],
     finalCreativeDirection: `Setelah disetujui, "${theme}" menjadi creative direction utama. Seksi Acara, Dekorasi, Perlengkapan, dan Dokumentasi wajib menjaga konsistensi pesan, visual, dan pengalaman peserta di seluruh rangkaian acara.`,
   };
+
+  return {
+    ...baseBrief,
+    overviewSections: resolveOverviewSections(baseBrief),
+    atmosphereItems: resolveAtmosphereItems(baseBrief),
+    journeySections: resolveJourneySections(baseBrief),
+    acaraSections: resolveAcaraSections(baseBrief),
+    decorSections: resolveDecorSections(baseBrief),
+    techRequirementItems: resolveTechRequirementItems(baseBrief),
+    pddSections: resolvePddSections(baseBrief),
+    finalDirectionItems: resolveFinalDirectionItems(baseBrief),
+  };
 }
 
 const SECTION_LABEL_FOR_DOC: Record<string, string> = {
@@ -394,13 +545,7 @@ export function mergeSyncedEventDataIntoBrief(
   const nextBudgetDetails: BriefBudgetDetailRow[] = budgets.map((b) => ({
     sectionLabel: SECTION_LABEL_FOR_DOC[b.section] || b.section,
     itemName: b.item_name,
-    requiredDate: b.required_date
-      ? new Date(`${b.required_date}T00:00:00`).toLocaleDateString("id-ID", {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-        })
-      : "-",
+    requiredDate: formatDateWIB(b.required_date, "-"),
     qty: b.quantity ?? 1,
     uom: b.uom || "Set",
     unitPrice: b.unit_price ?? b.estimated_amount ?? 0,
@@ -720,48 +865,58 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
 
           <div class="sec-title">01. PROJECT OVERVIEW</div>
           <table class="doc-table">
-            <tr><td class="kv-key">Main Theme</td><td>${escapeHtml(data.mainTheme)}</td></tr>
-            <tr><td class="kv-key">Scripture / Biblical Foundation</td><td>${escapeHtml(data.scriptureRef)} &mdash; &ldquo;${escapeHtml(data.scriptureQuote)}&rdquo;</td></tr>
-            <tr><td class="kv-key">Tagline</td><td>${escapeHtml(data.tagline)}</td></tr>
-            <tr><td class="kv-key">Background</td><td style="white-space:pre-line;">${escapeHtml(data.background)}</td></tr>
-            <tr><td class="kv-key">Key Message</td><td>${escapeHtml(data.keyMessage)}</td></tr>
-            <tr><td class="kv-key">Project Objectives</td><td style="white-space:pre-line;">${escapeHtml(data.objectives)}</td></tr>
-            <tr><td class="kv-key">Target Audience</td><td>${escapeHtml(data.targetAudience)}</td></tr>
-            <tr><td class="kv-key">Core Concept</td><td style="white-space:pre-line;">${escapeHtml(data.coreConcept)}</td></tr>
+            ${resolveOverviewSections(data)
+              .map(
+                (grp) =>
+                  `<tr><td class="kv-key">${escapeHtml(grp.title)}</td><td style="white-space:pre-line;">${escapeHtml(
+                    formatDocumentGroupItems(grp.items)
+                  )}</td></tr>`
+              )
+              .join("")}
           </table>
 
           <div class="sec-title">02. EVENT EXPERIENCE &amp; PARTICIPANT JOURNEY</div>
-          <table class="doc-table"><tr><td class="kv-key">Desired Atmosphere</td><td>${escapeHtml(data.desiredAtmosphere)}</td></tr></table>
+          <table class="doc-table"><tr><td class="kv-key">Desired Atmosphere</td><td style="white-space:pre-line;">${escapeHtml(
+            formatDocumentGroupItems(resolveAtmosphereItems(data))
+          )}</td></tr></table>
           <table class="doc-table">
             <thead><tr><th style="width:55px;" class="center">Tahap</th><th style="width:140px;">Fase</th><th>Pengalaman Peserta (Participant Journey)</th></tr></thead>
             <tbody>
-              <tr><td class="center">1</td><td><strong>Before Event</strong></td><td>${escapeHtml(data.journeyBefore)}</td></tr>
-              <tr><td class="center">2</td><td><strong>Arrival</strong></td><td>${escapeHtml(data.journeyArrival)}</td></tr>
-              <tr><td class="center">3</td><td><strong>Opening</strong></td><td>${escapeHtml(data.journeyOpening)}</td></tr>
-              <tr><td class="center">4</td><td><strong>Main Experience</strong></td><td>${escapeHtml(data.journeyMain)}</td></tr>
-              <tr><td class="center">5</td><td><strong>Closing</strong></td><td>${escapeHtml(data.journeyClosing)}</td></tr>
-              <tr><td class="center">6</td><td><strong>After Event</strong></td><td>${escapeHtml(data.journeyAfter)}</td></tr>
+              ${resolveJourneySections(data)
+                .map(
+                  (grp, idx) =>
+                    `<tr><td class="center">${idx + 1}</td><td><strong>${escapeHtml(
+                      grp.title
+                    )}</strong></td><td style="white-space:pre-line;">${escapeHtml(
+                      formatDocumentGroupItems(grp.items)
+                    )}</td></tr>`
+                )
+                .join("")}
             </tbody>
           </table>
 
           <div class="sec-title">03A. SECTION &mdash; ACARA</div>
           <table class="doc-table">
-            <tr><td class="kv-key">Main Concept</td><td>${escapeHtml(data.acaraConcept)}</td></tr>
-            <tr><td class="kv-key">Activity / Program</td><td>${escapeHtml(data.acaraProgram)}</td></tr>
-            <tr><td class="kv-key">Special Moment</td><td>${escapeHtml(data.acaraSpecialMoment)}</td></tr>
-            <tr><td class="kv-key">Talent / Speaker / Performer</td><td>${escapeHtml(data.acaraTalent)}</td></tr>
-            <tr><td class="kv-key">Estimated Duration</td><td>${escapeHtml(data.acaraDuration)}</td></tr>
-            <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.acaraSpecialReq)}</td></tr>
+            ${resolveAcaraSections(data)
+              .map(
+                (grp) =>
+                  `<tr><td class="kv-key">${escapeHtml(grp.title)}</td><td style="white-space:pre-line;">${escapeHtml(
+                    formatDocumentGroupItems(grp.items)
+                  )}</td></tr>`
+              )
+              .join("")}
           </table>
 
           <div class="sec-title">03B. SECTION &mdash; DEKORASI</div>
           <table class="doc-table">
-            <tr><td class="kv-key">Decoration Concept</td><td>${escapeHtml(data.decorConcept)}</td></tr>
-            <tr><td class="kv-key">Visual Style</td><td>${escapeHtml(data.decorStyle)}</td></tr>
-            <tr><td class="kv-key">Color Palette</td><td>${escapeHtml(data.decorPalette)}</td></tr>
-            <tr><td class="kv-key">Main Visual / Key Visual</td><td>${escapeHtml(data.decorKeyVisual)}</td></tr>
-            <tr><td class="kv-key">Decoration Areas</td><td>${escapeHtml(data.decorAreas)}</td></tr>
-            <tr><td class="kv-key">Special Requirements</td><td>${escapeHtml(data.decorSpecialReq)}</td></tr>
+            ${resolveDecorSections(data)
+              .map(
+                (grp) =>
+                  `<tr><td class="kv-key">${escapeHtml(grp.title)}</td><td style="white-space:pre-line;">${escapeHtml(
+                    formatDocumentGroupItems(grp.items)
+                  )}</td></tr>`
+              )
+              .join("")}
           </table>
           <div class="sub-title">Visualisasi Dekorasi</div>
           <table class="doc-table"><tr><td>${safeDecorImg ? `Mockup: ${escapeHtml(safeDecorImg)}` : "[Gambar Referensi / Mockup Dekorasi Panggung]"}</td></tr></table>
@@ -780,15 +935,20 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
               ${data.equipmentItems.map((e, idx) => `<tr><td class="center">${idx + 1}</td><td>${escapeHtml(e.name)}</td><td class="center">${escapeHtml(e.qty)}</td><td>${escapeHtml(e.purpose)}</td><td class="center">${escapeHtml(e.priority)}</td></tr>`).join("")}
             </tbody>
           </table>
-          <table class="doc-table"><tr><td><strong>Special Technical Requirements</strong><br/>${escapeHtml(data.techRequirements)}</td></tr></table>
+          <table class="doc-table"><tr><td style="white-space:pre-line;"><strong>Special Technical Requirements</strong><br/>${escapeHtml(
+            formatDocumentGroupItems(resolveTechRequirementItems(data))
+          )}</td></tr></table>
 
           <div class="sec-title">03D. SECTION &mdash; DOKUMENTASI</div>
           <table class="doc-table">
-            <tr><td class="kv-key">Documentation Objective</td><td>${escapeHtml(data.docObjective)}</td></tr>
-            <tr><td class="kv-key">Required Content</td><td>${escapeHtml(data.docContent)}</td></tr>
-            <tr><td class="kv-key">Priority Moments (Shot List)</td><td>${escapeHtml(data.docShotlist)}</td></tr>
-            <tr><td class="kv-key">Publication Platforms</td><td>${escapeHtml(data.docPlatforms)}</td></tr>
-            <tr><td class="kv-key">Output Target</td><td>${escapeHtml(data.docTarget)}</td></tr>
+            ${resolvePddSections(data)
+              .map(
+                (grp) =>
+                  `<tr><td class="kv-key">${escapeHtml(grp.title)}</td><td style="white-space:pre-line;">${escapeHtml(
+                    formatDocumentGroupItems(grp.items)
+                  )}</td></tr>`
+              )
+              .join("")}
           </table>
 
           <div class="sec-title">04. BUDGET OVERVIEW</div>
@@ -863,7 +1023,9 @@ export function exportProjectBriefToPdf(data: EventProjectBriefData): void {
               ${data.approvals.map((a) => `<tr><td><strong>${escapeHtml(a.role)}</strong></td><td>${escapeHtml(a.name)}</td><td style="height:34px;"></td><td>${escapeHtml(a.date)}</td></tr>`).join("")}
             </tbody>
           </table>
-          <table class="doc-table"><tr><td><strong>Final Creative Direction</strong><br/>${escapeHtml(data.finalCreativeDirection)}</td></tr></table>
+          <table class="doc-table"><tr><td style="white-space:pre-line;"><strong>Final Creative Direction</strong><br/>${escapeHtml(
+            formatDocumentGroupItems(resolveFinalDirectionItems(data))
+          )}</td></tr></table>
         </td>
       </tr>
     </tbody>

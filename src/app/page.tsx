@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { motion } from "framer-motion";
+import { FADE_FAST } from "@/providers/motion-provider";
 import { CalendarDays, Plus } from "lucide-react";
 import {
   User,
@@ -700,7 +702,12 @@ export default function Home() {
               )}
             </div>
           ) : (
-            <div key={`${effectiveActiveTab}-${event.id}`} className="animate-tab-enter">
+            <motion.div
+              key={`${effectiveActiveTab}-${event.id}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={FADE_FAST}
+            >
               {effectiveActiveTab === "home" && (
                 <HomeDashboardView
                   currentUser={currentUser}
@@ -802,7 +809,7 @@ export default function Home() {
                   onSelectEvent={handleSelectEvent}
                 />
               )}
-            </div>
+            </motion.div>
           )}
         </main>
       </div>
